@@ -33,6 +33,8 @@ export function InspectionView({ take, inspection, act }: { take: Take; inspecti
         <button className="ghost small" title="Run the technical and vision checks again" onClick={again}>Inspect again</button>
       </div>
       {inspection.vision_error && <span className="muted block">{inspection.vision_error}; only the technical checks ran.</span>}
+      {inspection.vision_skipped && <span className="muted block">Technical checks only: the vision check is off
+        (<a className="link" href="#/settings">Settings → Take inspection</a>).</span>}
       {inspection.sheet && (
         <a href={api.sheetUrl(take.id)} target="_blank" rel="noreferrer" title="The four keyframes the check looked at">
           <img className="sheet" src={api.sheetUrl(take.id)} alt="Four keyframes of this take" loading="lazy" />

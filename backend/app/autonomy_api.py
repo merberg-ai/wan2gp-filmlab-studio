@@ -76,7 +76,7 @@ async def project_extras(s, project_id: str) -> dict:
     for r in rows:
         v = json.loads(r.pop("vision") or "null") or {}
         inspections[r.pop("take_id")] = r | {"sheet": bool(r["sheet"]), "vision_error": v.get("error"),
-                                             "vision_summary": v.get("summary")}
+                                             "vision_summary": v.get("summary"), "vision_skipped": v.get("skipped")}
     return {"inspections": inspections, "redo": await redo_state_for(s, project_id)}
 
 
@@ -144,6 +144,7 @@ async def run_action(run_id: str, action: str, request: Request):
 class AutonomySettingsIn(BaseModel):
     auto_inspect: bool | None = None
     vision_model: str | None = Field(default=None, max_length=100)
+    vision: str | None = None  # off | local | cloud: where the four keyframes go
 
 
 class HoldIn(BaseModel):

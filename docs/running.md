@@ -37,7 +37,7 @@ Nothing starts with Windows unless you chose **Start at logon** during setup (`s
 ## Order of things
 
 1. **WanGP**, with its MCP server on (*Configuration → Agents → Enable MCP with Web UI*). Needed for rendering.
-2. **Ollama**, running in the tray. Needed for the director and for take inspection.
+2. **Ollama**, running in the tray. Needed for the director, and for take inspection's vision check if you turned it on.
 3. **FilmLab**: `filmlabctl.ps1 start`.
 
 The order isn't strict: FilmLab reconnects on its own when WanGP or Ollama start or restart. The status lights in the cockpit's top bar show **Events**, **Director** and **WanGP** (with its queue), and the **GPU** and **VRAM** meters show live load.

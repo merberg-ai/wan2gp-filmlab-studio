@@ -553,6 +553,27 @@ if (Ask-YesNo 'Download the missing models now? (tens of GB; can take an hour or
     $null = Invoke-Distro $distro "cd '$repoWsl/backend' && ~/filmlab/venv/bin/python -m app.cli warmup --yes"
 } else { Info 'Later: they download on first use, or run setup again.' }
 
+# Take inspection: where the vision check's frames go is the owner's explicit choice (off until chosen).
+if (-not $cfg.vision_asked) {
+    Head 'Take inspection'
+    Info 'After each render FilmLab checks the take. Technical checks (length, black or frozen picture, bad sound)'
+    Info 'always run here. An optional vision check also looks at four frames of the take with an Ollama model:'
+    $c = Ask-Choice 'Vision check?' @(
+        'O=Off: no frames are sent anywhere (technical checks only; you can turn it on later in Settings)',
+        "C=Cloud: four frames per take go to $DefaultModel on Ollama's servers (no GPU used here)",
+        'L=Local: an Ollama vision model on this PC (frames stay here; uses GPU memory while rendering)')
+    $vcmd = $null
+    if ($c -eq 'c') { $vcmd = "vision cloud --model '$DefaultModel'" }
+    elseif ($c -eq 'l') {
+        $vm = Ask-Text 'Local vision model (it is pulled with Ollama if needed)' 'qwen2.5vl:7b'
+        if ((Get-Ollama).models -notcontains $vm) { & $ollama.exe pull $vm }
+        $vcmd = "vision local --model '$vm'"
+    } else { $vcmd = 'vision off' }
+    if ((Invoke-Distro $distro "cd '$repoWsl/backend' && ~/filmlab/venv/bin/python -m app.cli $vcmd") -eq 0) {
+        $cfg.vision_asked = $true; Save-Config $cfg
+    } else { Warn 'Could not save that choice; set it in the cockpit under Settings > Take inspection.' }
+}
+
 # 9. Optional: phone/LAN access over HTTPS
 Head '9. Optional: use FilmLab from your phone or another PC'
 if (-not $cfg.lan -and (Ask-YesNo 'Set up access from other devices on your home network (HTTPS with a private certificate)?' $false)) {

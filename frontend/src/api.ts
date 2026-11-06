@@ -100,7 +100,12 @@ export interface Take {
 }
 export interface Inspection {
   status: "running" | "done" | "failed"; verdict: "ok" | "flagged" | null; summary: string | null; sheet: boolean;
-  vision_error?: string | null; vision_summary?: string | null;
+  vision_error?: string | null; vision_summary?: string | null; vision_skipped?: string | null;
+}
+/** Take inspection: technical checks always run on this PC; the vision check's four keyframes go nowhere (off), to an
+ *  Ollama model on this PC (local), or to an Ollama cloud model (cloud: they leave this PC). */
+export interface InspectionSettings {
+  auto_inspect: boolean; vision_model: string; vision: "off" | "local" | "cloud"; vision_model_kind: "local" | "cloud";
 }
 export interface RedoProposal {
   id: string; shot_id: string; take_id: string | null; run_id: string | null; changes: { prompt?: string; seed?: number };
@@ -303,9 +308,9 @@ export const api = {
   testDirector: (model?: string) => request<DirectorTest>("POST", "/api/director/test", model === undefined ? undefined : { model }),
   directorModels: () => request<DirectorModel[]>("GET", "/api/director/models"),
   freshChat: (projectId: string) => request<{ conversation: number }>("POST", `/api/projects/${projectId}/chat/fresh`),
-  autonomySettings: () => request<{ auto_inspect: boolean; vision_model: string }>("GET", "/api/settings/autonomy"),
-  putAutonomySettings: (s: { auto_inspect?: boolean; vision_model?: string }) =>
-    request<{ auto_inspect: boolean; vision_model: string }>("PUT", "/api/settings/autonomy", s),
+  autonomySettings: () => request<InspectionSettings>("GET", "/api/settings/autonomy"),
+  putAutonomySettings: (s: Partial<Pick<InspectionSettings, "auto_inspect" | "vision_model" | "vision">>) =>
+    request<InspectionSettings>("PUT", "/api/settings/autonomy", s),
   filmstripUrl: (mediaId: string) => `/api/media/${mediaId}/filmstrip`,
   trash: () => request<Trash>("GET", "/api/trash"),
   restore: (kind: TrashKind, id: string) => request("POST", `/api/trash/${kind}/${id}/restore`),

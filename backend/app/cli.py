@@ -4,6 +4,7 @@
     python -m app.cli set-owner --username you --generate # writes a random one to a 600 file
     python -m app.cli warmup [--yes] [--all]             # list (or download) the WanGP models FilmLab uses
     python -m app.cli has-owner                           # exit 0 if an owner login exists (for the installer)
+    python -m app.cli vision off|local|cloud [--model M]  # where take inspection's four keyframes go
 """
 
 import argparse
@@ -44,6 +45,26 @@ async def _set_owner(args):
         db.close()
 
 
+async def _vision(mode: str, model: str | None) -> int:
+    from .inspect_takes import InspectError, Inspector
+    s = Settings()
+    db = Database(s.db_path)
+    try:
+        patch = {"vision": mode} | ({"vision_model": model} if model else {})
+        if mode == "cloud" and not model:
+            patch["vision_model"] = "gemma4:31b-cloud"
+        cur = await Inspector(db, None, s.media_dir).set_settings(patch)
+        where = {"off": "off: no frames are sent anywhere", "local": f"local: {cur['vision_model']} on this PC",
+                 "cloud": f"cloud: four frames per take go to {cur['vision_model']} on Ollama's servers"}[mode]
+        print(f"take inspection vision check {where} (technical checks always run here)")
+        return 0
+    except InspectError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    finally:
+        db.close()
+
+
 async def _has_owner() -> bool:
     db = Database(Settings().db_path)
     try:
@@ -62,12 +83,17 @@ def main():
     wu.add_argument("--yes", action="store_true", help="run a tiny generation per missing model (downloads it)")
     wu.add_argument("--all", action="store_true", help="run every default model once, even installed ones")
     sub.add_parser("has-owner", help="exit 0 if an owner login exists")
+    vi = sub.add_parser("vision", help="take inspection's vision check: off, a local Ollama model, or a cloud one")
+    vi.add_argument("mode", choices=["off", "local", "cloud"])
+    vi.add_argument("--model", help="the Ollama vision model (required for local; cloud defaults to gemma4:31b-cloud)")
     args = ap.parse_args()
     if args.cmd == "set-owner":
         asyncio.run(_set_owner(args))
     elif args.cmd == "warmup":
         from .warmup import warmup
         sys.exit(asyncio.run(warmup(args.yes, args.all, say=lambda m: print(m, flush=True))))
+    elif args.cmd == "vision":
+        sys.exit(asyncio.run(_vision(args.mode, args.model)))
     elif args.cmd == "has-owner":
         sys.exit(0 if asyncio.run(_has_owner()) else 1)
 

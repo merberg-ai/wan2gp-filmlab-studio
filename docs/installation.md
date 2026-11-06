@@ -121,6 +121,12 @@ WanGP downloads each model the first time it's used. Setup lists the six models 
 
 Say **yes** and setup runs one tiny generation per missing model, which makes WanGP download it. Together this can be tens of GB and take an hour or more. Keep WanGP running. Say **no** and they download the first time you use them instead.
 
+**Take inspection.** Setup then asks where take inspection's **vision check** should look at your takes:
+
+- **Off**: no frames are sent anywhere. Only the technical checks run (on your PC). You can turn it on later in **Settings → Take inspection**.
+- **Cloud**: four frames of every new take go to `gemma4:31b-cloud` on Ollama's servers. It uses no GPU here.
+- **Local**: an Ollama vision model on your PC (default `qwen2.5vl:7b`, pulled if needed). The frames stay here, but it uses GPU memory while WanGP renders.
+
 ### 9. Phone access (optional)
 
 Use FilmLab from your phone, tablet or another PC on your home network:

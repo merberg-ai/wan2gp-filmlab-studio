@@ -29,6 +29,16 @@ from .media import _run
 log = logging.getLogger("filmlab.inspect")
 
 DEFAULTS = {"auto_inspect": True, "vision_model": "gemma4:31b-cloud", "ollama_url": "http://127.0.0.1:11434"}
+# Where the vision check's four keyframes go: nowhere (off), an Ollama model on this PC (local), or an Ollama cloud
+# model (cloud: the frames leave this PC). The technical checks (ffmpeg, on this PC) run in every mode. The mode is the
+# owner's explicit choice and must match the model; FilmLab never switches between local and cloud by itself.
+VISION_MODES = ("off", "local", "cloud")
+
+
+def is_cloud_model(name: str) -> bool:
+    """Ollama names its cloud models with a cloud tag: gemma4:31b-cloud, gpt-oss:120b-cloud, qwen3-vl:235b-cloud."""
+    tag = str(name or "").lower().rsplit(":", 1)[-1] if ":" in str(name or "") else ""
+    return tag == "cloud" or tag.endswith("-cloud") or str(name or "").lower().endswith("-cloud")
 FRACTIONS = (0.1, 0.37, 0.63, 0.9)
 VISION_SCHEMA = {
     "type": "object",
@@ -174,7 +184,15 @@ class Inspector:
         self.listeners: list = []  # async (take_id, inspection) -> None
 
     async def settings(self) -> dict:
-        return DEFAULTS | (await self.db.kv_get("autonomy.settings") or {})
+        stored = await self.db.kv_get("autonomy.settings") or {}
+        cur = DEFAULTS | stored
+        if cur.get("vision") not in VISION_MODES:
+            # Installs from before the explicit choice keep what they did (vision checks already ran with their
+            # model); a new install starts with the vision check off until the owner chooses.
+            used = await self.db.fetchone("SELECT 1 FROM take_inspections WHERE model IS NOT NULL LIMIT 1")
+            cur["vision"] = ("cloud" if is_cloud_model(cur["vision_model"]) else "local") if used else "off"
+            await self.db.kv_set("autonomy.settings", {k: cur[k] for k in ("auto_inspect", "vision_model", "vision")})
+        return cur | {"vision_model_kind": "cloud" if is_cloud_model(cur["vision_model"]) else "local"}
 
     async def set_settings(self, patch: dict) -> dict:
         cur = await self.settings()
@@ -185,8 +203,18 @@ class Inspector:
             if not re.fullmatch(r"[\w.:/-]{1,100}", m):
                 raise InspectError("vision_model must be an Ollama model name")
             cur["vision_model"] = m
-        await self.db.kv_set("autonomy.settings", {k: cur[k] for k in ("auto_inspect", "vision_model")})
-        return cur
+        if patch.get("vision") is not None:
+            if patch["vision"] not in VISION_MODES:
+                raise InspectError("vision must be off, local or cloud")
+            cur["vision"] = patch["vision"]
+        cloud = is_cloud_model(cur["vision_model"])
+        if cur["vision"] == "local" and cloud:
+            raise InspectError(f"{cur['vision_model']} is an Ollama cloud model: its frames would leave this PC. Name a "
+                               "model that runs on this PC (e.g. qwen2.5vl:7b), or choose Cloud.")
+        if cur["vision"] == "cloud" and not cloud:
+            raise InspectError(f"{cur['vision_model']} runs on this PC, not in Ollama's cloud: choose Local for it.")
+        await self.db.kv_set("autonomy.settings", {k: cur[k] for k in ("auto_inspect", "vision_model", "vision")})
+        return cur | {"vision_model_kind": "cloud" if cloud else "local"}
 
     async def get(self, take_id: str) -> dict | None:
         row = await self.db.fetchone("SELECT * FROM take_inspections WHERE take_id = ?", (take_id,))
@@ -261,18 +289,25 @@ class Inspector:
             frames = await self._keyframes(src, tech.get("duration_s") or take["duration_s"] or 1, work)
             sheet = await self._sheet(frames, work)
             cfg = await self.settings()
-            model = cfg["vision_model"]
-            try:
-                async with self._vision:
-                    vision = await self._ask_vision(cfg, vision_text(shot, setting, mood, refs), frames)
-                flags += vision_flags(vision, bool(setting))
-            except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError) as exc:
-                vision = {"error": f"the vision check didn't run ({type(exc).__name__}: {str(exc)[:200]})"}
-                log.warning("vision check for take %s failed: %s", take_id, exc)
+            if cfg["vision"] == "off":
+                vision = {"skipped": "the vision check is off (Settings → Take inspection)"}
+            elif (cfg["vision"] == "cloud") != is_cloud_model(cfg["vision_model"]):
+                # never send frames somewhere the owner didn't choose (settings can't get here, but stay safe)
+                vision = {"skipped": f"{cfg['vision_model']} doesn't match the chosen {cfg['vision']} vision check"}
+            else:
+                model = cfg["vision_model"]
+                try:
+                    async with self._vision:
+                        vision = await self._ask_vision(cfg, vision_text(shot, setting, mood, refs), frames)
+                    flags += vision_flags(vision, bool(setting))
+                except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError) as exc:
+                    vision = {"error": f"the vision check didn't run ({type(exc).__name__}: {str(exc)[:200]})"}
+                    log.warning("vision check for take %s failed: %s", take_id, exc)
             tech["flags"] = flags
             verdict = "flagged" if flags else "ok"
             summary = ("; ".join(flags) if flags else
-                       (vision or {}).get("summary") or "no technical problems found")
+                       (vision or {}).get("summary") or "no technical problems found"
+                       + (" (the vision check is off)" if (vision or {}).get("skipped") else ""))
             await self.db.execute(
                 "UPDATE take_inspections SET status = 'done', verdict = ?, technical = ?, vision = ?, summary = ?, "
                 "model = ?, sheet_rel = ?, finished_at = ? WHERE take_id = ?",

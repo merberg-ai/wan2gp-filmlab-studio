@@ -130,7 +130,17 @@ The **Renders** panel shows what's rendering, WanGP's queue, progress and an **e
 
 ## Reviewing takes
 
-Every new take is **inspected** automatically: technical checks (length, black or frozen picture, silent or clipping sound) and a vision check of four frames against the prompt. A take that looks wrong is **flagged ⚠**. Inspection is advice; it never deletes anything.
+Every new take is **inspected** automatically:
+
+- **Technical checks**, always, on your PC: length, black or frozen picture, silent or clipping sound.
+- An optional **vision check** of four frames against the prompt and the scene, by an Ollama vision model. Choose it under **Settings → Take inspection**:
+  - **Off** (the default on a new install): no frames are sent anywhere.
+  - **Local model**: frames stay on your PC; it uses GPU memory.
+  - **Cloud model**: four frames per take go to Ollama's servers.
+
+  Settings shows whether the model is Local or Cloud, and asks before you turn on the cloud option.
+
+A take that looks wrong is **flagged ⚠**. Inspection is advice; it never deletes anything.
 
 - Mark each take **👍 Good**, **🤔 Maybe** or **👎 Reject**, and add notes on what works and what doesn't.
 - **Use in edit** picks the take the edit uses (by default the newest good one).
@@ -171,6 +181,7 @@ The **Edit & export** tab assembles the film from each shot's chosen take, in st
 | **Models** | The default WanGP templates for video (with and without references), reference images, voice design and music; and every installed template with whether it's usable (**Check again** after downloading models in WanGP) |
 | **Presets** | Ready-made size, length and model combinations, plus your own |
 | **Director** | The director's model, your standing notes for it, how it replies, how many steps it may take, and a connection test |
+| **Take inspection** | Inspect new takes automatically, and the vision check: Off, a Local model, or a Cloud model (with a Local/Cloud label on the model) |
 | **GPU sharing** | Whether to wait while a local Ollama model holds VRAM |
 
 ## Tips for better results

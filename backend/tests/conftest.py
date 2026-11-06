@@ -99,11 +99,16 @@ async def _set_owner(studio):
 def make_harness(settings, video, image):
     opened = []
 
-    def factory(scenario="normal", client_addr="127.0.0.1", **overrides):
+    def factory(scenario="normal", client_addr="127.0.0.1", vision="cloud", **overrides):
+        """vision: the take-inspection vision check most tests assume (an install that chose the cloud model);
+        None leaves a new install's default (off)."""
         fw, fg, fv = FakeWanGP(video, scenario, image), FakeGateway(), FakeVision()
         app, studio = build(dataclasses.replace(settings, **overrides), fw, fg, fv)
         client = TestClient(app, client=(client_addr, 50000))
         client.__enter__()
+        if vision:
+            client.portal.call(studio.db.kv_set, "autonomy.settings",
+                               {"auto_inspect": True, "vision_model": "gemma4:31b-cloud", "vision": vision})
         harness = Harness(client, studio, fw, fg)
         harness.vision = fv
         opened.append(harness)

@@ -303,3 +303,57 @@ def test_loose_vision_answers_are_normalised():
     b = normalise_answer({"characters": ["Anthony", "Jason"], "artifacts": "warped hand", "prompt_match": "great"})
     assert [c["visible"] for c in b["characters"]] == [True, True] and b["artifacts"] == ["warped hand"]
     assert b["prompt_match"] is None and vision_flags(b, False) == []
+
+
+# --- FL-01: where the vision check's frames go is the owner's explicit choice -------------------------------
+
+def put_vision(h, **body):
+    return h.c.put("/api/settings/autonomy", json=body, headers={"x-csrf-token": h.csrf})
+
+
+def test_new_install_inspects_locally_with_the_vision_check_off(make_harness):
+    """A new install sends no frames anywhere until the owner chooses; the technical checks still run."""
+    h = make_harness(vision=None).login()
+    s = h.c.get("/api/settings/autonomy").json()
+    assert (s["vision"], s["vision_model_kind"]) == ("off", "cloud")  # the suggested model is a cloud one
+    pid = small_project(h)
+    shot = take_shot(h, pid)
+    t = takes_of(h, pid, shot["id"])[0]
+    i = inspection(h, t["id"])
+    assert i["status"] == "done" and i["technical"]["duration_s"] > 0 and i["model"] is None
+    assert "vision check is off" in i["vision"]["skipped"] and "vision check is off" in i["summary"]
+    assert h.vision.requests == []  # no frames went to any vision model
+    assert h.project(pid)["inspections"][t["id"]]["vision_skipped"]
+
+
+def test_local_or_cloud_must_match_the_model_and_never_switch_silently(make_harness):
+    h = make_harness(vision=None).login()
+    r = put_vision(h, vision="local")  # the default model is a cloud one: refused, not quietly sent to the cloud
+    assert r.status_code == 422 and "cloud model" in r.text and "would leave this PC" in r.text
+    assert put_vision(h, vision="cloud", vision_model="llava:latest").status_code == 422
+    assert h.c.get("/api/settings/autonomy").json()["vision"] == "off"  # refused changes change nothing
+    s = put_vision(h, vision="local", vision_model="llava:latest").json()
+    assert (s["vision"], s["vision_model"], s["vision_model_kind"]) == ("local", "llava:latest", "local")
+    pid = small_project(h)
+    shot = take_shot(h, pid)
+    t = takes_of(h, pid, shot["id"])[0]
+    i = inspection(h, t["id"])
+    assert i["model"] == "llava:latest" and h.vision.requests[-1]["model"] == "llava:latest"
+    # Back to cloud only by choosing it with a cloud model.
+    s = put_vision(h, vision="cloud", vision_model="gemma4:31b-cloud").json()
+    assert (s["vision"], s["vision_model_kind"]) == ("cloud", "cloud")
+    assert put_vision(h, vision_model="llava:latest").status_code == 422  # a local model under "cloud"
+
+
+def test_installs_that_already_used_vision_keep_their_choice(make_harness):
+    """Before the explicit setting existed, every take went to the configured model: keep that, don't turn it off."""
+    from app.inspect_takes import is_cloud_model
+    h = make_harness().login()
+    pid = small_project(h)
+    shot = take_shot(h, pid)
+    assert inspection(h, takes_of(h, pid, shot["id"])[0]["id"])["model"] == "gemma4:31b-cloud"  # vision has run
+    # settings as saved before the explicit choice existed
+    h.c.portal.call(h.studio.db.kv_set, "autonomy.settings", {"auto_inspect": True, "vision_model": "gemma4:31b-cloud"})
+    assert h.c.get("/api/settings/autonomy").json()["vision"] == "cloud"
+    assert is_cloud_model("gemma4:31b-cloud") and is_cloud_model("gpt-oss:120b-cloud") and is_cloud_model("x:cloud")
+    assert not is_cloud_model("llava:latest") and not is_cloud_model("qwen2.5vl:7b") and not is_cloud_model("cloudy:7b")

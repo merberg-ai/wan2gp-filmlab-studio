@@ -10,12 +10,12 @@
 
 | ID | Priority | Improvement | State |
 | --- | --- | --- | --- |
-| FL-01 | P0 | Clarify cloud vision-inspection data handling and controls | [ ] Proposed |
-| FL-02 | P1 | Optional speech-to-text verification of generated dialogue | [ ] Proposed |
-| FL-03 | P1 | CI checks plus a repeatable real-render regression suite | [ ] Proposed |
-| FL-04 | P1 | Explicit GPU hold / finish / release modes | [ ] Proposed |
-| FL-05 | P2 | Clean Windows installation and repair test matrix | [ ] Proposed |
-| FL-06 | P2 | Repeatable end-to-end short-film acceptance scenario | [ ] Proposed |
+| FL-01 | P0 | Clarify cloud vision-inspection data handling and controls | [x] Done (2026-11-06) |
+| FL-02 | P1 | Optional speech-to-text verification of generated dialogue | [ ] Proposed — deferred for now |
+| FL-03 | P1 | CI checks plus a repeatable real-render regression suite | [ ] Proposed — deferred for now |
+| FL-04 | P1 | Explicit GPU hold / finish / release modes | [ ] Proposed — deferred for now |
+| FL-05 | P2 | Clean Windows installation and repair test matrix | [ ] Proposed — deferred for now |
+| FL-06 | P2 | Repeatable end-to-end short-film acceptance scenario | [ ] Proposed — deferred for now |
 
 ## FL-01 — Cloud inspection privacy and disclosure (P0)
 
@@ -23,12 +23,21 @@
 
 **Tasks**
 
-- [ ] Update `README.md`, `docs/security.md`, `docs/user-guide.md`, and relevant setup text to distinguish **director text prompts**, **vision-inspection frames**, **render references**, and **locally stored media**.
-- [ ] Explain clearly that automatic take inspection may transmit four extracted frames to the configured vision provider when a cloud model is selected; technical FFmpeg inspection remains local.
-- [ ] Display the active vision model and a **Local / Cloud** indicator in the inspection settings and before enabling cloud-based inspection.
-- [ ] Provide a separately controlled option for vision inspection: **Off**, **local model**, or **cloud model**. Keep technical inspection available regardless.
-- [ ] Never describe a cloud-model workflow as fully local/offline, and do not silently fall back from a local vision model to a cloud model.
-- [ ] Add tests for disabled vision inspection, local-model selection, cloud consent/disclosure, and failed vision calls.
+- [x] Update `README.md`, `docs/security.md`, `docs/user-guide.md`, and relevant setup text to distinguish **director text prompts**, **vision-inspection frames**, **render references**, and **locally stored media**.
+- [x] Explain clearly that automatic take inspection may transmit four extracted frames to the configured vision provider when a cloud model is selected; technical FFmpeg inspection remains local.
+- [x] Display the active vision model and a **Local / Cloud** indicator in the inspection settings and before enabling cloud-based inspection.
+- [x] Provide a separately controlled option for vision inspection: **Off**, **local model**, or **cloud model**. Keep technical inspection available regardless.
+- [x] Never describe a cloud-model workflow as fully local/offline, and do not silently fall back from a local vision model to a cloud model.
+- [x] Add tests for disabled vision inspection, local-model selection, cloud consent/disclosure, and failed vision calls.
+
+**Done (2026-11-06).** What changed:
+
+- **Setting** `vision` = `off` / `local` / `cloud` (`backend/app/inspect_takes.py`, `PUT /api/settings/autonomy`). The mode must match the model (Ollama's `…-cloud` / `:cloud` names); a mismatch is refused with a plain explanation, so FilmLab never switches between local and cloud by itself. With `off` no frames are sent to any model; the technical ffmpeg checks always run.
+- **Defaults:** a new install starts with the vision check **off**. An install that had already run vision checks keeps the model it used (no behaviour change for existing owners).
+- **Cockpit:** Settings → Take inspection has Off / Local model / Cloud model with what each sends, a **Local / Cloud** label on the model, the current state in one line, and a confirmation before turning on cloud. Inspections done without a vision check say so on the take.
+- **Setup:** after the Models step, setup asks Off / Cloud / Local (`python -m app.cli vision off|local|cloud [--model M]`).
+- **Docs:** README, `docs/security.md` (a table of the four kinds of data and where each goes), `docs/user-guide.md`, `docs/installation.md` and `docs/running.md` agree.
+- **Tests:** `backend/tests/test_autonomy.py`: vision off on a new install (no frames sent, technical checks run), local/cloud mismatch refused and local model used, existing installs keep their choice, failed vision call (technical result stands).
 
 **Acceptance**
 
@@ -81,7 +90,7 @@
 **Acceptance**
 
 - Every PR receives a clear pass/fail for backend tests, frontend typecheck, and production build.
-- The local real-render acceptance suite can be deliberately run on the OMEN without altering unrelated WanGP work.
+- The local real-render acceptance suite can be deliberately run on the owner's own GPU machine without altering unrelated WanGP work.
 - A failed integration test identifies the failing boundary (FilmLab API, MCP, model availability, queue, recovery, media ingestion) rather than merely hanging.
 
 **Implementation pointers:** `backend/tests/`, `backend/app/wangp/client.py`, `backend/app/renders.py`, `frontend/package.json`, new `.github/workflows/` and `docs/regression-testing.md`.
@@ -155,6 +164,9 @@
 - Other WanGP workspace jobs remain untouched.
 
 ## Suggested delivery order
+
+> **For now only FL-01 is being done** (completed 2026-11-06). FL-02 to FL-06 stay proposed and deferred until picked up again.
+
 
 1. **FL-01:** Fix privacy disclosures and inspection controls first because they affect what users knowingly send to a cloud provider.
 2. **FL-03:** Establish CI before adding more processing paths.

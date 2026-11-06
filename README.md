@@ -71,7 +71,7 @@ You review, edit and export the finished film, from your desk or your phone.
 <td valign="top">
 
 ### 🏠 Local, private, phone-friendly
-- Runs on **your PC**: your films, references and voices never leave it. (The director model runs in Ollama's cloud; see [Security](docs/security.md).)
+- Runs on **your PC**: rendering happens here, and your takes, exports, references and voices are stored here. What leaves it is up to you: the director's **text** (briefs, prompts, chat) goes to its Ollama model, a cloud model by default; and the optional **vision check** of take inspection sends four frames per take to a cloud model **only if you turn it on**. See [Security](docs/security.md#your-data).
 - A responsive **web cockpit** that works on your phone over your home network (HTTPS with a private certificate).
 - Daily **backups**, verification and one-command restore.
 
@@ -143,7 +143,7 @@ It walks you through eleven steps and asks before every change:
 | 5. FilmLab | Creates the FilmLab Linux distro and installs the director, the backend and the cockpit |
 | 6. Your login | You choose the cockpit username and password |
 | 7. Start | Starts FilmLab |
-| 8. Models | Lists the WanGP models FilmLab uses and offers to download the missing ones now |
+| 8. Models | Lists the WanGP models FilmLab uses and offers to download the missing ones now; asks whether take inspection's vision check should be off, local or cloud |
 | 9. Phone access | *Optional:* HTTPS access from your phone and other devices on your home network |
 | 10. Autostart | *Optional:* start FilmLab when you log on |
 | 11. Updates | If you downloaded the ZIP, connects the folder to GitHub so you can update later |
@@ -189,7 +189,8 @@ The **[User guide](docs/user-guide.md)** covers every screen.
 | Director | OpenClaw agent (locked-down tool policy) | FilmLab WSL distro, loopback only |
 | Director model | `gemma4:31b-cloud` via Ollama (configurable) | Ollama on Windows (cloud model) |
 | Rendering | WanGP over MCP (MiniMax H3, LTX-2, Z Image, Flux Klein, Qwen3 TTS, ACE-Step…) | WanGP on Windows, your GPU |
-| Media | ffmpeg (inspection, thumbnails, export, loudness) | FilmLab WSL distro |
+| Media | ffmpeg (technical inspection, thumbnails, export, loudness) | FilmLab WSL distro |
+| Take inspection, vision check | Optional, off by default: a local or cloud Ollama vision model | Your choice (Settings) |
 
 <details>
 <summary><b>Repository layout</b></summary>
@@ -211,7 +212,7 @@ Setup-FilmLab.cmd   The setup assistant (double-click)
 <details>
 <summary><b>Does it need the internet?</b></summary>
 
-For setup, for downloading models, and for the director: the default director model (`gemma4:31b-cloud`) runs in Ollama's cloud. Rendering, review, editing and export run entirely on your PC. You can point the director at a local Ollama model instead (**Settings → Director**), at the cost of GPU memory while it runs.
+For setup, for downloading models, and for the director: the default director model (`gemma4:31b-cloud`) runs in Ollama's cloud, so your briefs, prompts and chat go there. Take inspection's vision check is **off** until you choose: off, a local Ollama vision model, or a cloud one (which sends four frames per take). Rendering, review, editing and export run entirely on your PC. You can point the director at a local Ollama model instead (**Settings → Director**), at the cost of GPU memory while it runs.
 </details>
 
 <details>

@@ -16,10 +16,18 @@ FilmLab is **never exposed to the internet**. Don't forward port 19300 on your r
 
 ## Your data
 
-- Your projects, takes, library images, voices and exports stay **on your PC**, inside the FilmLab distro.
-- The **director** sends prompts, briefs, chat messages and library *names and descriptions* to its model. With the default **cloud** model (`gemma4:31b-cloud`) that means Ollama's cloud. Your images, videos and voice samples are not sent to it. Choose a local Ollama model under **Settings → Director** if you want everything to stay on your PC.
-- **Take inspection** sends four frames of each take to the inspection model through Ollama.
-- WanGP receives the shots' prompts and the reference images and voice samples it needs to render.
+What FilmLab sends where, by kind of data:
+
+| Data | Where it goes | Your control |
+|---|---|---|
+| **Stored media**: projects, takes, exports, library images, voice samples, backups | Stays **on your PC**, inside the FilmLab distro | — |
+| **Render references**: a shot's prompt, its reference images and voice samples | **WanGP on your PC** (loopback only), to render the shot | — |
+| **Director text**: briefs, shot prompts, chat, library *names and descriptions* | The director's **Ollama model**: with the default `gemma4:31b-cloud`, **Ollama's cloud**. No images, videos or audio are sent to it | Pick a local model under **Settings → Director** to keep this on your PC |
+| **Vision-check frames**: four keyframes of each new take, with the shot's prompt and scene | **Nowhere** by default. If you turn the vision check on: a **local** Ollama model (stays on your PC), or a **cloud** model (the frames go to Ollama's servers) | **Settings → Take inspection**: Off / Local model / Cloud model. Setup asks you during install |
+
+- Take inspection's **technical checks** (length, black or frozen picture, silent or clipping sound) always run with ffmpeg on your PC.
+- The vision check's mode must match its model: FilmLab refuses a cloud model under *Local* (and the reverse), and never falls back from a local model to a cloud one. With the check off, no frames are sent to any model.
+- Turning on the **cloud** vision check asks you to confirm first, and Settings always shows whether the model is **Local** or **Cloud**.
 
 ## The cockpit
 

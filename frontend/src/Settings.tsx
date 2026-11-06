@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ask } from "./Dialog";
 import { type Capabilities, type Capability, lib, type Preset, templateLabel, type TemplateSettings } from "./library-api";
-import { api, type DirectorModel, type DirectorOverview, type DirectorSettings as DS } from "./api";
+import { api, type DirectorModel, type DirectorOverview, type DirectorSettings as DS, type InspectionSettings as InspectionSettingsT } from "./api";
 import { AUTONOMY } from "./Autonomy";
 import { Markdown } from "./Markdown";
 
@@ -101,30 +101,60 @@ export function SettingsPage() {
   );
 }
 
-/** Take inspection: on or off, and the vision model that looks at the keyframes. */
+/** Take inspection: on or off, and where the vision check's four keyframes go (off, this PC, or Ollama's cloud). */
 function InspectionSettings() {
-  const [s, setS] = useState<{ auto_inspect: boolean; vision_model: string } | null>(null);
+  const [s, setS] = useState<InspectionSettingsT | null>(null);
+  const [mode, setMode] = useState<InspectionSettingsT["vision"]>("off");
   const [model, setModel] = useState("");
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { api.autonomySettings().then((x) => { setS(x); setModel(x.vision_model); }).catch((e) => setError((e as Error).message)); }, []);
-  const save = (patch: { auto_inspect?: boolean; vision_model?: string }) =>
-    api.putAutonomySettings(patch).then((x) => { setS(x); setModel(x.vision_model); setError(null); }).catch((e) => setError((e as Error).message));
+  const show = (x: InspectionSettingsT) => { setS(x); setMode(x.vision); setModel(x.vision_model); setError(null); };
+  useEffect(() => { api.autonomySettings().then(show).catch((e) => setError((e as Error).message)); }, []);
+  const save = async (patch: Partial<Pick<InspectionSettingsT, "auto_inspect" | "vision_model" | "vision">>) => {
+    if (patch.vision === "cloud" && s?.vision !== "cloud" && !await ask(
+      `Send four frames of every new take to ${patch.vision_model ?? model} on Ollama's cloud servers for the vision check? `
+      + "Your takes themselves, your references and voices stay on this PC; only these frames (and the shot's prompt) are sent.",
+      { confirm: "Use the cloud model" })) return;
+    api.putAutonomySettings(patch).then(show).catch((e) => setError((e as Error).message));
+  };
   if (!s) return error ? <p className="error">{error}</p> : null;
+  const cloudName = /(:|-)cloud$/i.test(model.trim());
+  const dirty = mode !== s.vision || model.trim() !== s.vision_model;
   return (
     <section>
       <h2>Take inspection</h2>
-      <p className="muted small">After each render FilmLab checks the take: length, black or frozen picture, silent or clipping
-        sound (ffmpeg, on the CPU), and four keyframes against the prompt and scene (a vision model through Ollama). The default
-        is the director's cloud model, so it doesn't use the GPU WanGP renders on. A local model would compete with WanGP for VRAM.
-        Speech isn't checked.</p>
+      <p className="muted small">After each render FilmLab checks the take. The <strong>technical checks</strong> (length, black or
+        frozen picture, silent or clipping sound) always run with ffmpeg on this PC. The <strong>vision check</strong> looks at
+        four keyframes against the prompt and the scene, with an Ollama vision model: choose where those frames go. Speech
+        isn't checked.</p>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="settings card">
         <label><span>Inspect new takes automatically</span>
           <input type="checkbox" checked={s.auto_inspect} onChange={(e) => save({ auto_inspect: e.target.checked })} /></label>
-        <label><span>Vision model <span className="muted small">· an Ollama model that takes images</span></span>
-          <span className="row"><input value={model} onChange={(e) => setModel(e.target.value)} />
-            {model !== s.vision_model && <button className="primary small" onClick={() => save({ vision_model: model })}>Save</button>}</span>
-        </label>
+        <div className="vision-modes" role="radiogroup" aria-label="Vision check">
+          {([["off", "Off", "No frames are sent anywhere. Only the technical checks run."],
+            ["local", "Local model", "An Ollama vision model on this PC (e.g. qwen2.5vl:7b). Frames stay here; it uses GPU memory while WanGP renders."],
+            ["cloud", "Cloud model", "An Ollama cloud model (e.g. gemma4:31b-cloud). Four frames per take leave this PC; no GPU used here."],
+          ] as const).map(([v, label, note]) => (
+            <label key={v} className={`vision-mode ${mode === v ? "on" : ""}`}>
+              <input type="radio" name="vision" checked={mode === v} onChange={() => setMode(v)} />
+              <span><strong>{label}</strong><span className="block muted small">{note}</span></span>
+            </label>
+          ))}
+        </div>
+        {mode !== "off" && (
+          <label><span>Vision model <span className="muted small">· an Ollama model that takes images</span></span>
+            <span className="row"><input value={model} onChange={(e) => setModel(e.target.value)} />
+              <span className={`chip ${cloudName ? "s-pending_approval" : "s-ready"}`}
+                title={cloudName ? "Runs on Ollama's servers: frames leave this PC" : "Runs on this PC"}>{cloudName ? "Cloud" : "Local"}</span></span>
+          </label>
+        )}
+        {mode === "local" && cloudName && <p className="small warn">That's a cloud model: name a model that runs on this PC, or choose Cloud.</p>}
+        {mode === "cloud" && model.trim() && !cloudName && <p className="small warn">That model runs on this PC: choose Local for it.</p>}
+        {dirty && <div className="actions"><button className="ghost small" onClick={() => show(s)}>Cancel</button>
+          <button className="primary small" onClick={() => save({ vision: mode, ...(mode !== "off" ? { vision_model: model.trim() } : {}) })}>Save</button></div>}
+        <p className="small">Now: {s.vision === "off" ? "vision check off, nothing leaves this PC"
+          : s.vision === "local" ? `vision check with ${s.vision_model} on this PC`
+          : `vision check with ${s.vision_model} in Ollama's cloud: four frames per take are sent there`}.</p>
       </div>
     </section>
   );
