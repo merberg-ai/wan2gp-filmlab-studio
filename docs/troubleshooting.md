@@ -41,7 +41,7 @@ Another program is using a port FilmLab needs; setup names it. Close it (or stop
 <details>
 <summary><b>"WSL 2.4.4 or newer isn't ready yet"</b></summary>
 
-Open **PowerShell as Administrator** and run `wsl --install --no-distribution` (no WSL yet) or `wsl --update` (older WSL). Restart Windows if asked, then press Enter in setup. Virtualization must be enabled in your BIOS/UEFI. Setup's report tells you if WSL itself fails to start.
+Open **PowerShell as Administrator** and run `wsl --install --no-distribution` (no WSL yet) or `wsl --update` (older WSL). Setup notices by itself when it's done; if Windows asks you to restart, restart and run `Setup-FilmLab.cmd` again. Virtualization must be enabled in your BIOS/UEFI. Setup's report tells you if WSL itself fails to start.
 </details>
 
 <details>

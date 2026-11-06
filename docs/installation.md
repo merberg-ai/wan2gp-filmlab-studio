@@ -31,7 +31,7 @@ FilmLab Studio installs with a guided **setup assistant** that checks your PC fi
 ## Run the setup assistant
 
 1. **Get FilmLab** into the folder where it should live, on any drive. This folder stays in use, so don't put it in Downloads, a temp folder or OneDrive (setup warns if you do).
-   - **No Git yet (a fresh PC):** on GitHub click **Code → Download ZIP** and extract it to e.g. `C:\FilmLab`. At the end, setup offers to connect the folder to GitHub so you can update later.
+   - **No Git yet (a fresh PC):** on the GitHub page click the green **Code** button → **Download ZIP**, and extract it. It contains a folder named `wan2gp-filmlab-studio-main`: move that folder to where FilmLab should live and rename it, e.g. to `C:\FilmLab`, so that **`C:\FilmLab\Setup-FilmLab.cmd`** exists. At the end, setup offers to connect the folder to GitHub so you can update later.
    - **With Git:**
      ```powershell
      git clone https://github.com/merberg-ai/wan2gp-filmlab-studio.git C:\FilmLab
@@ -65,14 +65,14 @@ FilmLab's backend runs in its own small Linux distro under **WSL 2** (version 2.
   ```powershell
   wsl --install --no-distribution
   ```
-  (or `wsl --update` if WSL is just old). Restart Windows if asked, then press **Enter** in setup to check again.
+  (or `wsl --update` if WSL is just old). Setup notices by itself when it's done. A first-time WSL install usually asks you to **restart Windows**: do that, then double-click `Setup-FilmLab.cmd` again. It skips what's already done and continues.
 - **Mirrored networking.** FilmLab reaches WanGP and Ollama on your PC through WSL's *mirrored networking*. If it's off, setup offers to add it to `%USERPROFILE%\.wslconfig` (it keeps a backup). WSL must restart for it to apply; setup asks before doing that, because restarting WSL stops every running Linux distro.
 
 ### 3. Ollama
 
 The director's model runs through [Ollama](https://ollama.com).
 
-- **Ollama missing?** Install it from **https://ollama.com/download/windows** (or run `winget install --id Ollama.Ollama`), start it once, then press **Enter** in setup.
+- **Ollama missing?** Install it from **https://ollama.com/download/windows** (or run `winget install --id Ollama.Ollama`). Setup notices when it's installed and starts it for you.
 - **The director model.** The default, `gemma4:31b-cloud`, is an Ollama **cloud** model: it runs on Ollama's servers, not your GPU, and needs a free Ollama account. Setup offers to run `ollama signin` (opens your browser) and then pulls the model. You can name a different model instead, including a local one.
 
 ### 4. WanGP
@@ -80,7 +80,10 @@ The director's model runs through [Ollama](https://ollama.com).
 [WanGP](https://github.com/deepbeepmeep/Wan2GP) renders everything FilmLab makes.
 
 - **Already installed?** Setup looks in the usual places (including Pinokio's `api` folder) and lists what it finds. Pick one, or type the path of the folder that contains `wgp.py`.
-- **Not installed?** Choose **Install WanGP for me**. Setup clones WanGP into a folder you choose, then opens **WanGP's own installer** in a new window: choose **1. Automatic Install**. It picks the right Python, PyTorch and CUDA build for your GPU. This takes 10–30 minutes.
+- **Not installed?** Choose **Install WanGP for me**. If Git is missing, setup tells you where to get it and waits. It then clones WanGP into a folder you choose (by default on your emptiest drive; WanGP's models are stored there too, so pick a drive with room) and opens **WanGP's own installer** in a new window:
+  1. If it asks to install Git or Python 3.11, answer **y**.
+  2. At its menu, choose **1. Automatic Install**. It picks the right Python, PyTorch and CUDA build for your GPU.
+  3. Wait until it says it's finished (10–30 minutes), close its window, and setup continues.
 - **MCP server.** FilmLab talks to WanGP through WanGP's MCP server on `127.0.0.1:8000`. Setup turns on **Configuration → Agents → Enable MCP with Web UI** for you (keeping a backup of `wgp_config.json`). It also warns if your WanGP launch options let MCP clients read files on your PC or serve MCP beyond this PC; FilmLab needs neither.
 - **Start WanGP.** Setup offers to start it and waits until its MCP server answers. The first start can take several minutes.
 
@@ -138,7 +141,7 @@ Adds a per-user Windows task that starts FilmLab a minute after you log on. With
 
 ### 11. Updates
 
-If you downloaded FilmLab as a ZIP, setup offers to connect the folder to this GitHub repository (it needs Git, which setup will have asked you to install for WanGP). Your files stay exactly as they are; it only adds the version history, so `scripts/update.sh` can update FilmLab later. A cloned folder skips this step.
+If you downloaded FilmLab as a ZIP and Git is installed, setup offers to connect the folder to this GitHub repository (without Git it skips this; install Git and run setup again to do it later). Your files stay exactly as they are; it only adds the version history, so `scripts/update.sh` can update FilmLab later. A cloned folder skips this step.
 
 ## After setup
 

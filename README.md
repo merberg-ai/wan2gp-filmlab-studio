@@ -108,7 +108,8 @@ FilmLab never downloads models on its own and never touches WanGP's other jobs. 
 | | Minimum | Recommended |
 |---|---|---|
 | **OS** | Windows 11 22H2 (build 22621) | Windows 11 24H2 or newer |
-| **GPU** | NVIDIA RTX, 12 GB VRAM | NVIDIA RTX, **16 GB+ VRAM** (e.g. RTX 4080 / 4090 / 5080 / 5090) |
+| **GPU** | NVIDIA RTX, 12 GB VRAM, driver 580+ | NVIDIA RTX, **16 GB+ VRAM** (e.g. RTX 4080 / 4090 / 5080 / 5090), latest driver |
+| **CPU** | Virtualization enabled in BIOS/UEFI (for WSL; usually on already) | |
 | **Memory** | 32 GB | 64 GB |
 | **Disk** | 100 GB free | 150 GB+ free (models alone take 50–100 GB) |
 | **Network** | Internet for setup, models and the director | Home Wi-Fi/LAN if you want to use your phone |
@@ -123,7 +124,7 @@ The setup assistant checks all of this for you before it changes anything.
 
 **1. Get FilmLab** into the folder where it should live, e.g. `C:\FilmLab` (not Downloads or OneDrive: the folder stays in use).
 
-- **Nothing installed yet?** Click **Code → Download ZIP** above, and extract it to `C:\FilmLab`. Setup connects it to GitHub for updates later.
+- **Nothing installed yet?** Click the green **Code** button at the top of this page → **Download ZIP**, and extract it. You get a folder named `wan2gp-filmlab-studio-main`: move it to `C:\` and rename it to `FilmLab`, so that **`C:\FilmLab\Setup-FilmLab.cmd`** exists. Setup connects it to GitHub for updates later.
 - **Have Git?**
   ```powershell
   git clone https://github.com/merberg-ai/wan2gp-filmlab-studio.git C:\FilmLab
@@ -131,12 +132,12 @@ The setup assistant checks all of this for you before it changes anything.
 
 **2. Run the setup assistant:** double-click **`Setup-FilmLab.cmd`** in that folder. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**: the script isn't signed, but it's this repository's own.
 
-It walks you through ten steps and asks before every change:
+It walks you through eleven steps and asks before every change:
 
 | Step | What happens |
 |---|---|
-| 1. This PC | Checks Windows, GPU and VRAM, memory and disk space |
-| 2. WSL | If WSL 2 is missing, shows you how to install it and waits; turns on mirrored networking (with your OK) |
+| 1. This PC | Checks Windows, GPU, VRAM and driver, CPU virtualization, memory and disk space |
+| 2. WSL | If WSL 2 is missing, shows you how to install it and waits (installing WSL needs a Windows restart: then run `Setup-FilmLab.cmd` again); turns on mirrored networking (with your OK) |
 | 3. Ollama | If Ollama is missing, tells you where to get it and waits; you sign in, then it pulls the director model |
 | 4. WanGP | Finds your WanGP (including Pinokio installs) or clones it and runs **WanGP's own installer**; turns on its MCP server and starts it |
 | 5. FilmLab | Creates the FilmLab Linux distro and installs the director, the backend and the cockpit |
