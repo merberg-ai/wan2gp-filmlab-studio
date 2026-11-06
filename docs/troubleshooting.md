@@ -15,6 +15,30 @@ Start with **`Setup-FilmLab.cmd`**: it re-checks everything and repairs what's m
 ## Setup
 
 <details>
+<summary><b>"Windows protected your PC" when starting Setup-FilmLab.cmd</b></summary>
+
+Windows SmartScreen warns about any unsigned script downloaded from the internet. Click **More info → Run anyway**. Setup then clears that mark from FilmLab's other scripts, so you'll only see it once.
+</details>
+
+<details>
+<summary><b>"CPU virtualization looks off"</b></summary>
+
+WSL needs your CPU's virtualization feature. Restart into your PC's BIOS/UEFI settings (usually **Del**, **F2** or **F10** at power-on) and enable **Intel Virtualization Technology (VT-x)** or **AMD SVM Mode**, save, and run setup again.
+</details>
+
+<details>
+<summary><b>"NVIDIA driver … needs 580 or newer"</b></summary>
+
+WanGP's recommended build uses CUDA 13. Update the driver from [nvidia.com/drivers](https://www.nvidia.com/drivers) or the NVIDIA app, restart, and run setup again.
+</details>
+
+<details>
+<summary><b>"Port 19300 (or 19189) is already in use"</b></summary>
+
+Another program is using a port FilmLab needs; setup names it. Close it (or stop an older FilmLab with `scripts\filmlabctl.ps1 stop`) and run setup again.
+</details>
+
+<details>
 <summary><b>"WSL 2.4.4 or newer isn't ready yet"</b></summary>
 
 Open **PowerShell as Administrator** and run `wsl --install --no-distribution` (no WSL yet) or `wsl --update` (older WSL). Restart Windows if asked, then press Enter in setup. Virtualization must be enabled in your BIOS/UEFI. Setup's report tells you if WSL itself fails to start.

@@ -11,8 +11,8 @@
   Every run is logged to %LOCALAPPDATA%\FilmLab\f1c-firewall.log.
 
 .EXAMPLE
-  .\f1c-firewall.ps1                 # add the Hyper-V rule (asks to confirm)
-  .\f1c-firewall.ps1 -WithHostRule   # add the Hyper-V rule and the Defender rule
+  .\f1c-firewall.ps1 -Lan 192.168.0.0/24                 # add the Hyper-V rule (asks to confirm)
+  .\f1c-firewall.ps1 -Lan 192.168.0.0/24 -WithHostRule   # also add the Defender rule
   .\f1c-firewall.ps1 -Remove         # rollback: delete all FilmLab rules
 #>
 [CmdletBinding()]
@@ -20,7 +20,7 @@ param(
     [switch]$WithHostRule,
     [switch]$Remove,
     [switch]$Yes,
-    [string]$Lan = '192.168.1.0/24'   # the installer passes this PC's own subnet
+    [string]$Lan = ''   # this PC's home network, e.g. 192.168.0.0/24 (setup passes it); needed to add rules
 )
 $ErrorActionPreference = 'Stop'
 
@@ -60,6 +60,10 @@ function Confirm-Step($what) {
 }
 
 Show-State 'before'
+
+if (-not $Remove -and $Lan -notmatch '^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$') {
+    throw 'Give your home network with -Lan, e.g. -Lan 192.168.0.0/24 (Setup-FilmLab.cmd passes it for you).'
+}
 
 if ($Remove) {
     Confirm-Step 'Remove all FilmLab firewall rules (Hyper-V and Defender).'

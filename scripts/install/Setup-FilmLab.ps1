@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   Detects what is already there, explains what is missing, and asks before every change.
-    1. This PC: Windows, GPU and VRAM, memory, disk space.
+    1. This PC: Windows, GPU, VRAM and driver, CPU virtualization, memory, disk space, free ports, Git.
     2. WSL 2 with mirrored networking (instructions if missing; setup waits until it is there).
     3. Ollama and the director's model (instructions if missing; you sign in to Ollama yourself).
     4. WanGP: finds an existing install, or clones and installs it with WanGP's own installer;
@@ -12,6 +12,9 @@
     5. The FilmLab Linux distro, the director (OpenClaw, locked down), the backend and the cockpit.
     6. Your owner login.
     7. Optional: download the models FilmLab uses now; phone/LAN access over HTTPS; start at logon.
+    8. A ZIP download is connected to the GitHub repository, so it can be updated later.
+  Where setup waits for something you install yourself (WSL, Ollama, Git), it re-checks every few seconds
+  on its own and picks up newly installed programs without a new terminal.
   Every step checks first, so running setup again picks up where it stopped. Choices are kept in
   %LOCALAPPDATA%\FilmLab\config.json and a log in %LOCALAPPDATA%\FilmLab\setup.log.
   Setup never runs 'wsl --shutdown' or changes Windows settings without asking first.
@@ -35,6 +38,7 @@ New-Item -ItemType Directory -Force $StateDir | Out-Null
 
 $DefaultModel = 'gemma4:31b-cloud'
 $WanGPRepo = 'https://github.com/deepbeepmeep/Wan2GP.git'
+$FilmLabRepo = 'https://github.com/merberg-ai/wan2gp-filmlab-studio.git'
 $CockpitPort = 19300
 
 # --- output and questions -----------------------------------------------------------------------
@@ -77,14 +81,40 @@ function Ask-Choice([string]$q, [string[]]$options) {
     }
 }
 
-# Instructions for something setup won't install itself, then wait until it's there.
-function Wait-Until([string]$what, [scriptblock]$check, [string[]]$help) {
-    while (-not (& $check)) {
-        Bad "$what isn't ready yet."
-        foreach ($h in $help) { Info $h }
-        $a = (Read-Host "  ? Press Enter to check again, or Q to stop setup (run it again later)").Trim().ToLower()
-        if ($a -eq 'q') { Say 'Setup stopped. Run Setup-FilmLab.cmd again when you are ready: it continues from here.' 'Yellow'; exit 1 }
+# Programs installed while setup runs (Git, Ollama) only appear on a NEW process's PATH; re-read it from the registry.
+function Update-Path {
+    $m = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $u = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $env:Path = "$m;$u"
+}
+
+function Stop-Setup {
+    Say 'Setup stopped. Run Setup-FilmLab.cmd again when you are ready: it continues from where it stopped.' 'Yellow'
+    exit 1
+}
+
+# Instructions for something setup won't install itself, then wait until it's there: setup checks again on its own
+# every few seconds (so the user just follows the instructions), Q stops it.
+function Wait-Until([string]$what, [scriptblock]$check, [string[]]$help, [int]$every = 5) {
+    Update-Path
+    if (& $check) { Ok "$what is ready."; return }
+    Bad "$what isn't ready yet."
+    foreach ($h in $help) { Info $h }
+    Say "  Waiting: setup checks again every $every s and continues by itself. Press Q to stop for now." 'White'
+    $ticks = 0
+    while ($true) {
+        Start-Sleep -Milliseconds 500
+        try {
+            if ([Console]::KeyAvailable -and ([Console]::ReadKey($true).KeyChar -in @('q', 'Q'))) { Write-Host ''; Stop-Setup }
+        } catch { }
+        $ticks++
+        if ($ticks % ($every * 2) -eq 0) {
+            Update-Path
+            if (& $check) { break }
+            Write-Host '.' -NoNewline
+        }
     }
+    Write-Host ''
     Ok "$what is ready."
 }
 
@@ -109,6 +139,8 @@ function Get-Hardware {
         cpu = "$($cpu.Name.Trim()) ($($cpu.NumberOfCores) cores)"
         ram_gb = [Math]::Round($os.TotalVisibleMemorySize / 1MB, 0)
         gpus = @(); nvidia = $false; vram_gb = 0; driver = ''
+        # WSL needs CPU virtualization. With a hypervisor already running, the firmware flag can read false.
+        virtualization = [bool]((Get-CimInstance Win32_ComputerSystem).HypervisorPresent -or $cpu.VirtualizationFirmwareEnabled)
     }
     $smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
     if ($smi) {
@@ -250,10 +282,24 @@ if ($hw.build -lt 22621) { Bad 'Windows 11 22H2 or newer is needed (WSL mirrored
 if (-not $hw.nvidia) { Bad 'No NVIDIA GPU found (nvidia-smi). FilmLab uses WanGP on an NVIDIA GPU.'; $blocking = $true }
 elseif ($hw.vram_gb -lt 12) { Warn "$($hw.vram_gb) GB of VRAM: the video models want 16 GB or more; small shots may still work." }
 else { Ok "NVIDIA GPU with $($hw.vram_gb) GB VRAM" }
+if ($hw.nvidia -and $hw.driver -and ([double]($hw.driver -replace '[^0-9.].*$', '')) -lt 580) {
+    Warn "NVIDIA driver $($hw.driver): WanGP's recommended build (CUDA 13) needs 580 or newer."
+    Info 'Update it from https://www.nvidia.com/drivers (or the NVIDIA app) before installing WanGP.'
+}
+if (-not $hw.virtualization) {
+    Bad 'CPU virtualization looks off: WSL needs it.'
+    Info "Turn on 'Intel VT-x' / 'AMD SVM' (or 'Virtualization Technology') in your PC's BIOS/UEFI settings, then restart."
+}
 if ($hw.ram_gb -lt 32) { Warn "$($hw.ram_gb) GB of memory: 32 GB or more is recommended (64 GB for long shots)." } else { Ok "$($hw.ram_gb) GB of memory" }
 $best = $hw.disks | Sort-Object free_gb -Descending | Select-Object -First 1
 if ($best.free_gb -lt 150) { Warn "The most free space is $($best.free_gb) GB on $($best.drive):. Plan on about 150 GB (models alone are 50-100 GB)." }
 else { Ok "$($best.free_gb) GB free on $($best.drive):" }
+if ($Repo -match '\\OneDrive|\\Downloads\\|\\AppData\\Local\\Temp') {
+    Warn "FilmLab is in $Repo. That folder stays in use (WSL reads it directly): a synced or temporary folder is slow"
+    Info 'or gets cleaned up. Moving it to e.g. C:\FilmLab before going further is better (then run setup from there).'
+}
+$hasGit = [bool](Get-Command git -ErrorAction SilentlyContinue)
+$isCheckout = Test-Path (Join-Path $Repo '.git')
 
 $wsl = Get-Wsl
 $ollama = Get-Ollama
@@ -268,13 +314,26 @@ if ($ollama.models -contains $DefaultModel) { Ok "director model $DefaultModel" 
 if ($wans) { foreach ($w in $wans) { Ok "WanGP found: $w" } } else { Warn 'WanGP not found in the usual places' }
 if ($mcp) { Ok "WanGP's MCP server answers on 127.0.0.1:$wanPort" } else { Warn "WanGP's MCP server doesn't answer on 127.0.0.1:$wanPort" }
 $distro = if ($cfg.distro) { $cfg.distro } else { 'FilmLab' }
-if ($wsl.distros -contains $distro) { Ok "FilmLab distro '$distro' exists" } else { Info "FilmLab distro '$distro' not created yet" }
+$distroExists = $wsl.distros -contains $distro
+if ($distroExists) { Ok "FilmLab distro '$distro' exists" } else { Info "FilmLab distro '$distro' not created yet" }
+if ($hasGit) { Ok 'Git' } else { Warn 'Git is not installed (needed to install WanGP and for FilmLab updates)' }
+if (-not $isCheckout) { Warn 'This FilmLab folder is a download, not a Git checkout: updates need one (setup can connect it later)' }
+# FilmLab's own ports: busy ones are fine when it's this FilmLab running already.
+foreach ($p in @(19300, 19189)) {
+    $busy = Get-NetTCPConnection -State Listen -LocalPort $p -ErrorAction SilentlyContinue
+    if ($busy -and -not $distroExists) {
+        $who = (Get-Process -Id ($busy | Select-Object -First 1).OwningProcess -ErrorAction SilentlyContinue).ProcessName
+        Warn "Port $p is already in use ($who). FilmLab needs it: close that program, or FilmLab won't start."
+    }
+}
 
 if ($CheckOnly) { Say ''; Say 'Check only: nothing was changed.' 'White'; exit 0 }
 if ($blocking) {
     Bad 'This PC is missing something FilmLab needs (above).'
     if (-not (Ask-YesNo 'Continue anyway?' $false)) { exit 1 }
 }
+# A ZIP download carries Windows' "from the internet" mark on every file: clear it on FilmLab's own scripts.
+Get-ChildItem -Path $Repo -Recurse -File -Include *.ps1, *.cmd -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue
 
 # 2. WSL
 Head '2. WSL (the Linux side FilmLab runs in)'
@@ -323,10 +382,20 @@ if (-not $wsl.mirrored) {
 
 # 3. Ollama
 Head '3. Ollama (runs the director model)'
-Wait-Until 'Ollama' { $o = Get-Ollama; $o.installed -and $o.running } @(
+# Installed but not running: start its tray app (the same as starting it from the Start menu).
+$ollamaApp = Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama app.exe'
+$script:ollamaStarted = $false
+$ollamaUp = {
+    $o = Get-Ollama
+    if ($o.installed -and -not $o.running -and -not $script:ollamaStarted -and (Test-Path $ollamaApp)) {
+        Start-Process $ollamaApp; $script:ollamaStarted = $true; Start-Sleep 5; $o = Get-Ollama
+    }
+    $o.installed -and $o.running
+}
+Wait-Until 'Ollama' $ollamaUp @(
     'Install Ollama for Windows from https://ollama.com/download/windows',
     '(or in a terminal:  winget install --id Ollama.Ollama )',
-    'Start it once (it then runs in the tray), then come back here.')
+    'Setup starts it once it is installed (it then runs in the tray).')
 $model = if ($cfg.director_model) { $cfg.director_model } else { $DefaultModel }
 $ollama = Get-Ollama
 if ($ollama.models -notcontains $model) {
@@ -364,7 +433,7 @@ if (-not $wan -or -not (Test-Path (Join-Path $wan 'wgp.py'))) {
     if (-not $wan) {
         Wait-Until 'Git' { [bool](Get-Command git -ErrorAction SilentlyContinue) } @(
             'Install Git for Windows from https://git-scm.com/download/win  (or:  winget install --id Git.Git )',
-            'Then open a NEW terminal and run Setup-FilmLab.cmd again (Git must be on the PATH).')
+            'The default options are fine.')
         $drive = ($hw.disks | Sort-Object free_gb -Descending | Select-Object -First 1).drive
         $wan = Ask-Text 'Install WanGP into' "$($drive):\Wan2GP"
         if (-not (Test-Path (Join-Path $wan 'wgp.py'))) {
@@ -520,6 +589,28 @@ if (-not $cfg.autostart_asked) {
         & (Join-Path $Repo 'scripts\install\f7-startup-task.ps1') -Install
     }
     $cfg.autostart_asked = $true; Save-Config $cfg
+}
+
+# 11. Updates: a ZIP download can't update; connect it to the GitHub repository (the files stay as they are).
+Update-Path
+if (-not (Test-Path (Join-Path $Repo '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)) {
+    Head '11. Updates'
+    Info 'This FilmLab folder was downloaded, not cloned, so it cannot be updated with scripts\update.sh yet.'
+    if (Ask-YesNo "Connect it to $FilmLabRepo for updates? (your files stay as they are)" $true) {
+        Push-Location $Repo
+        try {
+            & git init -q -b main
+            & git remote add origin $FilmLabRepo
+            & git fetch -q origin main
+            if ($LASTEXITCODE -eq 0) {
+                & git reset -q origin/main   # history from GitHub; the folder's files are left untouched
+                & git branch -q -u origin/main
+                $changed = @(& git status --porcelain).Count
+                if ($changed) { Warn "$changed file(s) differ from GitHub's latest version: run the update to bring them in line." }
+                else { Ok 'connected: this folder matches the latest version on GitHub' }
+            } else { Warn 'Could not reach GitHub; try again later by running setup.' }
+        } finally { Pop-Location }
+    }
 }
 
 Head 'Done'

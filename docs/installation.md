@@ -22,24 +22,24 @@ FilmLab Studio installs with a guided **setup assistant** that checks your PC fi
 | **~150 GB free disk** | Models take 50–100 GB; your films and backups grow over time |
 | **An internet connection** | For setup, models and the director |
 | **A free Ollama account** | For the default cloud director model |
-| **Git** | Setup tells you how to install it if you don't have it |
+| **CPU virtualization on** | Usually on already; setup tells you if it's off (it's a BIOS/UEFI setting) |
+| **NVIDIA driver 580 or newer** | For WanGP's recommended build; setup checks it |
 
 > [!NOTE]
-> You don't need to install WSL, Ollama or WanGP first. Setup detects each one and tells you exactly what to do if it's missing.
+> **Starting from a brand-new PC is fine.** You don't need Git, WSL, Ollama or WanGP first: setup detects each one, tells you exactly what to install and where to get it, waits while you do (it notices by itself when it's done), and installs everything else.
 
 ## Run the setup assistant
 
-1. **Clone FilmLab** into the folder where it should live. It can be on any drive; this folder stays in use, so don't put it in Downloads.
+1. **Get FilmLab** into the folder where it should live, on any drive. This folder stays in use, so don't put it in Downloads, a temp folder or OneDrive (setup warns if you do).
+   - **No Git yet (a fresh PC):** on GitHub click **Code → Download ZIP** and extract it to e.g. `C:\FilmLab`. At the end, setup offers to connect the folder to GitHub so you can update later.
+   - **With Git:**
+     ```powershell
+     git clone https://github.com/merberg-ai/wan2gp-filmlab-studio.git C:\FilmLab
+     ```
 
-   ```powershell
-   git clone https://github.com/merberg-ai/wan2gp-filmlab-studio.git C:\FilmLab
-   ```
+2. **Double-click `Setup-FilmLab.cmd`** in that folder. If Windows shows *"Windows protected your PC"*, click **More info → Run anyway**. The script isn't code-signed; it's this repository's own, and you can read it in `scripts\install\Setup-FilmLab.ps1`.
 
-   No Git yet? Download the repository as a ZIP from GitHub (**Code → Download ZIP**) and extract it, then install Git when setup asks (it's needed for WanGP).
-
-2. **Double-click `Setup-FilmLab.cmd`** in that folder.
-
-   It opens a console window and starts with a report of your PC and what's installed. Answer each question with **Enter** for the suggested answer, or type your choice.
+   It opens a console window and starts with a report of your PC and what's installed. Answer each question with **Enter** for the suggested answer, or type your choice. When it's waiting for something you're installing, it checks again every few seconds by itself; press **Q** to stop and run it again later.
 
 > [!TIP]
 > Want to see the report without changing anything? In PowerShell, from the FilmLab folder:
@@ -51,7 +51,11 @@ FilmLab Studio installs with a guided **setup assistant** that checks your PC fi
 
 ### 1. This PC
 
-Setup reports Windows, your CPU, memory, every GPU with its VRAM and driver, and free space on each drive. It warns if something is below the recommended level and stops if something essential (Windows 11, an NVIDIA GPU) is missing. You can continue anyway.
+Setup reports Windows, your CPU, memory, every GPU with its VRAM and driver, and free space on each drive. It warns if something is below the recommended level and stops if something essential (Windows 11, an NVIDIA GPU) is missing. You can continue anyway. It also checks that:
+
+- **CPU virtualization is on** (WSL needs it). If it's off, turn on *Intel VT-x* / *AMD SVM* in your PC's BIOS/UEFI.
+- **The NVIDIA driver is 580 or newer.** If not, update it from [nvidia.com/drivers](https://www.nvidia.com/drivers) or the NVIDIA app before WanGP is installed.
+- **FilmLab's ports (19300, 19189) are free**, and the FilmLab folder isn't in OneDrive, Downloads or a temp folder.
 
 ### 2. WSL
 
@@ -131,6 +135,10 @@ FilmLab is never reachable from the internet. Don't forward port 19300 on your r
 ### 10. Start at logon (optional)
 
 Adds a per-user Windows task that starts FilmLab a minute after you log on. Without it, start FilmLab yourself (see [Running FilmLab](running.md)).
+
+### 11. Updates
+
+If you downloaded FilmLab as a ZIP, setup offers to connect the folder to this GitHub repository (it needs Git, which setup will have asked you to install for WanGP). Your files stay exactly as they are; it only adds the version history, so `scripts/update.sh` can update FilmLab later. A cloned folder skips this step.
 
 ## After setup
 

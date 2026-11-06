@@ -121,13 +121,15 @@ The setup assistant checks all of this for you before it changes anything.
 > [!IMPORTANT]
 > FilmLab Studio is a Windows 11 application that uses **WSL 2**, **Ollama** and **WanGP**. The setup assistant finds what you already have, tells you how to get what's missing, and installs the rest.
 
-**1. Get FilmLab** into the folder where it should live (any drive):
+**1. Get FilmLab** into the folder where it should live, e.g. `C:\FilmLab` (not Downloads or OneDrive: the folder stays in use).
 
-```powershell
-git clone https://github.com/merberg-ai/wan2gp-filmlab-studio.git C:\FilmLab
-```
+- **Nothing installed yet?** Click **Code → Download ZIP** above, and extract it to `C:\FilmLab`. Setup connects it to GitHub for updates later.
+- **Have Git?**
+  ```powershell
+  git clone https://github.com/merberg-ai/wan2gp-filmlab-studio.git C:\FilmLab
+  ```
 
-**2. Run the setup assistant:** double-click **`Setup-FilmLab.cmd`** in that folder.
+**2. Run the setup assistant:** double-click **`Setup-FilmLab.cmd`** in that folder. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**: the script isn't signed, but it's this repository's own.
 
 It walks you through ten steps and asks before every change:
 
@@ -143,6 +145,9 @@ It walks you through ten steps and asks before every change:
 | 8. Models | Lists the WanGP models FilmLab uses and offers to download the missing ones now |
 | 9. Phone access | *Optional:* HTTPS access from your phone and other devices on your home network |
 | 10. Autostart | *Optional:* start FilmLab when you log on |
+| 11. Updates | If you downloaded the ZIP, connects the folder to GitHub so you can update later |
+
+While it waits for something you're installing (WSL, Ollama, Git), it checks again by itself every few seconds: just follow the instructions on screen.
 
 **3. Open the cockpit** at **http://127.0.0.1:19300** (or the HTTPS address setup shows you) and sign in.
 
