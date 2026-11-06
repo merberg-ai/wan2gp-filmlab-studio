@@ -1,0 +1,369 @@
+"""F5: take review, the edit, exports (real ffmpeg), deliveries, verification and restart."""
+
+import json
+import re
+import subprocess
+
+import pytest
+
+from tests.test_api import new_project, new_shot
+from tests.test_library import asset, default_variant, upload
+
+LTX = "LTX-2 2.3 Distilled 1.0"
+
+
+@pytest.fixture(scope="module")
+def music(tmp_path_factory):
+    p = tmp_path_factory.mktemp("music") / "tune.wav"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=4", "-ar", "44100",
+                    str(p)], check=True)
+    return p.read_bytes()
+
+
+def patch(h, url, body):
+    return h.c.patch(url, json=body, headers={"x-csrf-token": h.csrf})
+
+
+def rendered_shot(h, pid, title="Wide", takes=1):
+    s = new_shot(h, pid, title=title, template=LTX)
+    for n in range(takes):
+        h.post(f"/api/shots/{s['id']}/approve-and-render")
+        h.wait_for(lambda: len([t for t in h.project(pid)["takes"] if t["shot_id"] == s["id"]]) == n + 1, what="take")
+    return s
+
+
+def small_project(h, title="The Dead March"):
+    pid = new_project(h, title)
+    patch(h, f"/api/projects/{pid}", {"default_resolution": "320x180"})
+    return pid
+
+
+def edit(h, pid):
+    return h.c.get(f"/api/projects/{pid}/edit").json()
+
+
+def export(h, pid, **opts):
+    r = h.post(f"/api/projects/{pid}/exports", {"kind": "final", **opts})
+    assert r.status_code == 201, r.text
+    eid = r.json()["id"]
+    return h.wait_for(lambda: (e := next(x for x in h.c.get(f"/api/projects/{pid}/exports").json() if x["id"] == eid))
+                      and e["status"] not in ("queued", "running") and e, timeout=60, what="export")
+
+
+def ffprobe(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", "-show_format", str(path)],
+                         capture_output=True, check=True).stdout
+    return json.loads(out)
+
+
+def file_of(h, e, what="mp4"):
+    return h.studio.settings.media_dir / e["rel_dir"] / {"mp4": "film.mp4", "srt": "film.srt", "manifest": "manifest.json"}[what]
+
+
+# --- review -----------------------------------------------------------------------------
+
+def test_take_review_selection_and_rejects(make_harness):
+    h = make_harness().login()
+    pid = small_project(h)
+    s = rendered_shot(h, pid, takes=2)
+    other = rendered_shot(h, pid, title="Other")
+    takes = [t for t in h.project(pid)["takes"] if t["shot_id"] == s["id"]]
+    first, second = takes[0]["id"], takes[1]["id"]
+    clip = lambda: next(x for x in edit(h, pid)["segments"] if x.get("shot_id") == s["id"])
+    assert clip()["take_id"] == second  # newest by default
+    assert h.post(f"/api/shots/{s['id']}/select-take", {"take_id": first}).status_code == 200
+    assert clip()["take_id"] == first
+    r = h.post(f"/api/takes/{first}/review", {"verdict": "reject", "notes": "hand glitch"})
+    assert r.json()["verdict"] == "reject" and r.json()["notes"] == "hand glitch"
+    assert clip()["take_id"] == second  # a rejected selection falls back to the newest usable take
+    assert h.post(f"/api/shots/{s['id']}/select-take", {"take_id": first}).status_code == 422
+    other_take = next(t for t in h.project(pid)["takes"] if t["shot_id"] == other["id"])["id"]
+    assert h.post(f"/api/shots/{s['id']}/select-take", {"take_id": other_take}).status_code == 422
+    assert h.post(f"/api/takes/{second}/review", {"verdict": "great"}).status_code == 422
+    h.post(f"/api/takes/{second}/review", {"verdict": "reject"})
+    e = edit(h, pid)
+    assert [x["shot_id"] for x in e["segments"]] == [other["id"]]
+    assert any("no usable take" in i for i in e["issues"])
+    t = next(t for t in h.project(pid)["takes"] if t["id"] == second)
+    assert t["verdict"] == "reject"  # rejecting never deletes
+
+
+# --- the edit -----------------------------------------------------------------------------
+
+def test_timeline_follows_storyboard_with_trims_transitions_and_titles(make_harness):
+    h = make_harness().login()
+    pid = small_project(h)
+    a, b, c = rendered_shot(h, pid, "A"), rendered_shot(h, pid, "B"), rendered_shot(h, pid, "C")
+    patch(h, f"/api/shots/{a['id']}", {"transition": "dissolve"})
+    patch(h, f"/api/shots/{b['id']}", {"transition": "fade"})
+    r = patch(h, f"/api/projects/{pid}/edit", {
+        "clips": {a["id"]: {"in": 2, "out": 22, "transition_s": 0.25}, b["id"]: {"gain_db": -3}},
+        "texts": [{"kind": "title", "text": "The Dead March", "at": "start", "duration_s": 1},
+                  {"kind": "caption", "text": "Somewhere in France", "start_s": 0.2, "end_s": 1.0}],
+        "note": "first cut"})
+    assert r.status_code == 200, r.text
+    e = r.json()
+    kinds = [(x["kind"], x.get("title") or x.get("text")) for x in e["segments"]]
+    assert kinds == [("title", "The Dead March"), ("clip", "A"), ("clip", "B"), ("clip", "C")]
+    title, ca, cb, cc = e["segments"]
+    assert (ca["in"], ca["out"], ca["frames"]) == (2, 22, 20) and cb["gain_db"] == -3
+    assert (ca["transition"], ca["transition_s"]) == ("dissolve", 0.25)
+    assert cb["transition"] == "fade" and cb["transition_s"] == pytest.approx(0.5)  # default, within limits
+    assert cc["transition"] == "cut"  # nothing after the last clip
+    fps, n = e["fps"], cb["src"]["frames"]  # the test clip's own length
+    assert e["total_s"] == pytest.approx(24 / fps + 20 / fps - 0.25 + n / fps - 0.5 + n / fps, abs=1e-3)
+    assert ca["start_s"] == pytest.approx(1.0) and cb["start_s"] == pytest.approx(1.0 + 20 / fps - 0.25, abs=1e-3)
+    # The storyboard order drives the edit.
+    h.post(f"/api/shots/{c['id']}/move", {"index": 0})
+    assert [x.get("title") for x in edit(h, pid)["segments"] if x["kind"] == "clip"] == ["C", "A", "B"]
+    # Bad values are refused; revisions record changes and restore them.
+    assert patch(h, f"/api/projects/{pid}/edit", {"clips": {a["id"]: {"in": 20, "out": 5}}}).status_code == 422
+    assert patch(h, f"/api/projects/{pid}/edit", {"texts": [{"kind": "caption", "text": "x", "start_s": 2,
+                                                             "end_s": 1}]}).status_code == 422
+    patch(h, f"/api/projects/{pid}/edit", {"clips": {a["id"]: {"skip": True}}, "note": "drop A"})
+    assert "A" not in [x.get("title") for x in edit(h, pid)["segments"]]
+    revs = edit(h, pid)["revisions"]
+    assert [r["note"] for r in revs[:2]] == ["drop A", "first cut"]
+    h.post(f"/api/edit-revisions/{revs[1]['id']}/restore")
+    assert "A" in [x.get("title") for x in edit(h, pid)["segments"]]
+
+
+def test_director_reads_the_edit_and_only_suggests(make_harness):
+    h = make_harness().login()
+    pid = small_project(h)
+    a = rendered_shot(h, pid, "A")
+    run = lambda name, **args: h.c.portal.call(h.studio.tools.run, pid, name, json.dumps(args))
+    view = run("get_edit")
+    assert view["segments"][0]["shot_id"] == a["id"] and view["total_s"] > 0
+    assert run("review_takes")["shots"][0]["used_take"]
+    assert "error" in run("suggest_edit", change={"clips": {a["id"]: {"in": 30, "out": 2}}}, note="bad")
+    out = run("suggest_edit", change={"clips": {a["id"]: {"in": 3}},
+                                      "texts_add": [{"kind": "caption", "text": "Night", "start_s": 0, "end_s": 0.5}]},
+              note="trim the slow start, add a caption")
+    assert out["status"] == "pending"
+    assert edit(h, pid)["segments"][0]["in"] == 0  # nothing applied yet
+    sug = edit(h, pid)["suggestions"]
+    assert len(sug) == 1 and sug[0]["note"].startswith("trim")
+    h.post(f"/api/edit-suggestions/{sug[0]['id']}/accept")
+    e = edit(h, pid)
+    assert e["segments"][0]["in"] == 3 and e["doc"]["texts"][0]["text"] == "Night" and not e["suggestions"]
+    assert e["revisions"][0]["note"].startswith("accepted the director's suggestion")
+    assert not [n for n, _ in h.wangp.calls if n == "wangp_generate" and False]
+
+
+# --- exports -----------------------------------------------------------------------------------
+
+def test_final_export_with_everything(make_harness, music):
+    h = make_harness().login()
+    pid = small_project(h)
+    a, b = rendered_shot(h, pid, "A"), rendered_shot(h, pid, "B")
+    patch(h, f"/api/shots/{a['id']}", {"transition": "wipe_left"})  # one of the wipes/slides/shapes beyond fades
+    snd = asset(h, "sound", "Drums")
+    up = upload(h, default_variant(snd), music, caption="drums")
+    patch(h, f"/api/projects/{pid}/edit", {
+        "clips": {a["id"]: {"in": 1, "out": 24, "transition_s": 0.3}},
+        "music": [{"file_id": up["file_id"], "start_s": 0.5, "gain_db": -9, "fade_in_s": 0.2, "fade_out_s": 0.5}],
+        "texts": [{"kind": "title", "text": "Title “quoted”: 100% 'test'", "at": "start", "duration_s": 0.8},
+                  {"kind": "caption", "text": "a:b,c [x] 'q'", "start_s": 1.0, "end_s": 1.6}]})
+    total = edit(h, pid)["total_s"]
+    e = export(h, pid, burn_captions=True, srt=True)
+    assert e["status"] == "done", e.get("error")
+    assert e["number"] == 1 and e["mode"] == "encode" and len(e["sha256"]) == 64
+    info = ffprobe(file_of(h, e))
+    v = next(s for s in info["streams"] if s["codec_type"] == "video")
+    a_ = next(s for s in info["streams"] if s["codec_type"] == "audio")
+    assert (v["codec_name"], v["width"], v["height"], v["pix_fmt"], v["r_frame_rate"]) == ("h264", 320, 180, "yuv420p", "24/1")
+    assert (a_["codec_name"], a_["sample_rate"], a_["channels"]) == ("aac", "48000", 2)
+    assert float(info["format"]["duration"]) == pytest.approx(total, abs=0.08)
+    assert float(v["duration"]) == pytest.approx(float(a_["duration"]), abs=0.06)  # picture and sound end together
+    srt = file_of(h, e, "srt").read_text()
+    assert "00:00:01,000 --> 00:00:01,600" in srt and "a:b,c [x] 'q'" in srt
+    manifest = json.loads(file_of(h, e, "manifest").read_text())
+    lib_file = h.c.portal.call(h.studio.library.file, up["file_id"])
+    assert manifest["music"][0]["sha256"] == lib_file["sha256"] and manifest["loudness"] is True
+    assert [s["kind"] for s in manifest["segments"]] == ["title", "clip", "clip"]
+    assert manifest["encode"]["video"]["crf"] == 18
+    # Two-pass loudness: measured once, stored in the manifest, and the film lands on the target.
+    assert set(manifest["loudness_measured"]) >= {"input_i", "input_tp", "target_offset"}
+    lo = subprocess.run(["ffmpeg", "-nostats", "-i", str(file_of(h, e)), "-af", "ebur128", "-f", "null", "-"],
+                        capture_output=True, text=True).stderr
+    assert float(re.findall(r"I:\s+(-?[\d.]+) LUFS", lo)[-1]) == pytest.approx(-14, abs=1.0)
+    r = h.c.get(f"/api/exports/{e['id']}/file/mp4")
+    assert r.status_code == 200 and r.headers["content-type"] == "video/mp4"
+    assert "The%20Dead%20March%20-%20Delivery%201.mp4" in r.headers["content-disposition"]
+
+
+def test_untrimmed_cuts_are_joined_without_reencoding(make_harness):
+    h = make_harness().login()
+    pid = small_project(h)
+    rendered_shot(h, pid, "A"), rendered_shot(h, pid, "B")
+    patch(h, f"/api/projects/{pid}/edit", {"settings": {"loudness": False}})
+    e = export(h, pid)
+    assert e["status"] == "done" and e["mode"] == "copy", e.get("error")
+    v = next(s for s in ffprobe(file_of(h, e))["streams"] if s["codec_type"] == "video")
+    assert (v["width"], v["height"]) == (320, 176)  # stream copy keeps the takes' own size
+    out = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v", "-show_entries",
+                          "stream=nb_read_frames", "-of", "csv=p=0", str(file_of(h, e))], capture_output=True).stdout
+    frames = sum(x["src"]["frames"] for x in edit(h, pid)["segments"])
+    assert int(out.strip()) == frames
+
+
+def test_verify_deliveries_stay_immutable_and_drafts(make_harness):
+    h = make_harness().login()
+    pid = small_project(h)
+    a, _ = rendered_shot(h, pid, "A"), rendered_shot(h, pid, "B")
+    patch(h, f"/api/projects/{pid}/edit", {"clips": {a["id"]: {"in": 2}}})
+    d1 = export(h, pid)
+    sha1, bytes1 = d1["sha256"], file_of(h, d1).read_bytes()
+    assert h.post(f"/api/exports/{d1['id']}/verify").status_code == 200
+    v = h.wait_for(lambda: (x := next(e for e in h.c.get(f"/api/projects/{pid}/exports").json() if e["id"] == d1["id"]))
+                   ["verify_status"] not in (None, "running") and x, timeout=60, what="verify")
+    assert v["verify_status"] == "match", v["verify_detail"]
+    # Change the edit and export again: Delivery 2; Delivery 1 is untouched.
+    patch(h, f"/api/projects/{pid}/edit", {"clips": {a["id"]: {"in": 6}}})
+    d2 = export(h, pid)
+    assert d2["number"] == 2 and d2["sha256"] != sha1
+    assert file_of(h, d1).read_bytes() == bytes1
+    # A tampered delivery no longer verifies.
+    file_of(h, d1).write_bytes(file_of(h, d2).read_bytes())
+    h.post(f"/api/exports/{d1['id']}/verify")
+    v = h.wait_for(lambda: (x := next(e for e in h.c.get(f"/api/projects/{pid}/exports").json() if e["id"] == d1["id"]))
+                   ["verify_status"] not in (None, "running") and x, timeout=60, what="verify")
+    assert v["verify_status"] == "mismatch"
+    # Drafts are 540p-class and only the newest is kept.
+    dr1 = export(h, pid, kind="draft")
+    dr2 = export(h, pid, kind="draft")
+    assert dr1["number"] is None and dr2["status"] == "done"
+    v = next(s for s in ffprobe(file_of(h, dr2))["streams"] if s["codec_type"] == "video")
+    assert v["height"] == 540
+    ids = [e["id"] for e in h.c.get(f"/api/projects/{pid}/exports").json()]
+    assert dr2["id"] in ids and dr1["id"] not in ids and not file_of(h, dr1).exists()
+
+
+def test_export_interrupted_by_a_restart_starts_again_cleanly(make_harness):
+    h1 = make_harness().login()
+    pid = small_project(h1)
+    rendered_shot(h1, pid, "A")
+    eid = h1.c.portal.call(_queue_export, h1.studio, pid)  # as if the backend stopped mid-export
+    h1.close()
+    h2 = make_harness().login()
+    e = h2.wait_for(lambda: (x := next(e for e in h2.c.get(f"/api/projects/{pid}/exports").json() if e["id"] == eid))
+                    ["status"] == "done" and x, timeout=60, what="resumed export")
+    assert e["number"] == 1 and file_of(h2, e).is_file()
+    assert not list((h2.studio.settings.media_dir / e["rel_dir"]).glob("*.part"))
+
+
+def test_export_whose_ffmpeg_is_killed_from_outside_is_redone_not_failed(make_harness, monkeypatch):
+    """systemd stopping the unit can SIGTERM ffmpeg before the backend: that's an interruption, not a failure."""
+    from app.export import ExportInterrupted
+    h = make_harness().login()
+    pid = small_project(h)
+    rendered_shot(h, pid, "A")
+    real, calls = h.studio.exporter._ffmpeg, []
+
+    async def flaky(eid, m, workdir, out, progress, **kw):
+        if not kw.get("measure"):
+            calls.append(eid)
+            if progress and len(calls) == 1:
+                out.write_bytes(b"half")
+                raise ExportInterrupted("ffmpeg was stopped by signal 15")
+        return await real(eid, m, workdir, out, progress, **kw)
+    monkeypatch.setattr(h.studio.exporter, "_ffmpeg", flaky)
+    r = h.post(f"/api/projects/{pid}/exports", json={"kind": "final"})
+    assert r.status_code == 201
+    eid = r.json()["id"]
+    e = h.wait_for(lambda: (x := next(e for e in h.c.get(f"/api/projects/{pid}/exports").json() if e["id"] == eid))
+                   ["status"] not in ("queued", "running") and x, timeout=60, what="redone export")
+    assert e["status"] == "done" and e["number"] == 1 and len(calls) == 2, e
+    # Killed twice while the backend keeps running: then it fails, saying so.
+    calls.clear()
+
+    async def always(eid, m, workdir, out, progress, **kw):
+        calls.append(eid)
+        raise ExportInterrupted("ffmpeg was stopped by signal 9")
+    monkeypatch.setattr(h.studio.exporter, "_ffmpeg", always)
+    eid = h.post(f"/api/projects/{pid}/exports", json={"kind": "final"}).json()["id"]
+    e = h.wait_for(lambda: (x := next(e for e in h.c.get(f"/api/projects/{pid}/exports").json() if e["id"] == eid))
+                   ["status"] not in ("queued", "running") and x, timeout=60, what="failed export")
+    assert e["status"] == "failed" and "twice" in e["error"] and len(calls) == 2
+
+
+async def _queue_export(studio, pid):
+    m = await studio.exporter.manifest(pid, "final", {})
+    from app.db import new_id, now
+    eid = new_id()
+    rel = f"{pid}/exports/{eid}"
+    (studio.settings.media_dir / rel).mkdir(parents=True)
+    (studio.settings.media_dir / rel / "film.mp4.part").write_bytes(b"half")
+    await studio.db.execute("INSERT INTO exports (id, project_id, kind, status, manifest, mode, rel_dir, progress, created_at) "
+                            "VALUES (?, ?, 'final', 'running', ?, ?, ?, 0.4, ?)",
+                            (eid, pid, json.dumps(m), m["mode"], rel, now()))
+    return eid
+
+
+def test_export_needs_clips_and_can_be_cancelled_and_deleted(make_harness):
+    h = make_harness().login()
+    pid = small_project(h)
+    assert h.post(f"/api/projects/{pid}/exports", {"kind": "final"}).status_code == 409
+    rendered_shot(h, pid, "A")
+    e = export(h, pid)
+    r = h.c.delete(f"/api/exports/{e['id']}", headers={"x-csrf-token": h.csrf})
+    assert r.status_code == 200 and not h.c.get(f"/api/projects/{pid}/exports").json()
+    assert h.c.get(f"/api/exports/{e['id']}/file/mp4").status_code == 404
+    # Purging the project removes its exports and edit too.
+    h.c.delete(f"/api/projects/{pid}", headers={"x-csrf-token": h.csrf})
+    assert h.c.delete(f"/api/trash/project/{pid}", headers={"x-csrf-token": h.csrf}).status_code == 200
+    n = h.c.portal.call(h.studio.db.fetchone, "SELECT COUNT(*) AS n FROM exports WHERE project_id = ?", (pid,))["n"]
+    assert n == 0 and not (h.studio.settings.media_dir / pid).exists()
+
+
+def test_waveforms_and_filmstrips(make_harness, music):
+    h = make_harness().login()
+    pid = small_project(h)
+    rendered_shot(h, pid, "A")
+    take = h.project(pid)["takes"][0]
+    for url in (f"/api/media/{take['media_id']}/waveform", f"/api/media/{take['media_id']}/filmstrip"):
+        r = h.c.get(url)
+        assert r.status_code == 200 and len(r.content) > 100, url
+    snd = asset(h, "sound", "Drums")
+    up = upload(h, default_variant(snd), music, caption="drums")
+    assert h.c.get(f"/api/library/files/{up['file_id']}/waveform").status_code == 200
+
+
+def test_edit_prefers_good_takes_and_takes_can_be_deleted_and_restored(make_harness):
+    h = make_harness().login()
+    pid = small_project(h)
+    s = rendered_shot(h, pid, takes=3)
+    t1, t2, t3 = [t["id"] for t in h.project(pid)["takes"] if t["shot_id"] == s["id"]]
+    clip = lambda: next(x for x in edit(h, pid)["segments"] if x.get("shot_id") == s["id"])
+    assert clip()["take_id"] == t3
+    h.post(f"/api/takes/{t1}/review", {"verdict": "good"})
+    assert clip()["take_id"] == t1  # marked good beats newer takes without a verdict
+    # Delete the good take: it leaves the project, the edit falls back, and Recently deleted lists it.
+    assert h.c.delete(f"/api/takes/{t1}", headers={"x-csrf-token": h.csrf}).status_code == 200
+    assert t1 not in [t["id"] for t in h.project(pid)["takes"]] and clip()["take_id"] == t3
+    trash = h.c.get("/api/trash").json()
+    assert [t["id"] for t in trash["takes"]] == [t1] and trash["takes"][0]["verdict"] == "good"
+    assert h.post(f"/api/trash/take/{t1}/restore").status_code == 200
+    assert clip()["take_id"] == t1
+    # A take a delivery was made from can't be deleted forever; another one can, with its files.
+    e = export(h, pid)
+    assert e["status"] == "done"
+    h.c.delete(f"/api/takes/{t1}", headers={"x-csrf-token": h.csrf})
+    r = h.c.delete(f"/api/trash/take/{t1}", headers={"x-csrf-token": h.csrf})
+    assert r.status_code == 409 and "Delivery 1" in r.text
+    h.c.delete(f"/api/takes/{t2}", headers={"x-csrf-token": h.csrf})
+    media = h.c.portal.call(h.studio.db.fetchone, "SELECT m.rel_path FROM takes t JOIN media m ON m.id = t.media_id "
+                                                  "WHERE t.id = ?", (t2,))
+    path = h.studio.settings.media_dir / media["rel_path"]
+    assert path.is_file()
+    r = h.c.delete(f"/api/trash/take/{t2}", headers={"x-csrf-token": h.csrf})
+    assert r.status_code == 200 and r.json()["files_removed"] == 2 and not path.exists()
+
+
+def test_every_transition_is_an_effect_this_ffmpeg_has():
+    from app.shots import TRANSITIONS
+    out = subprocess.run(["ffmpeg", "-hide_banner", "-h", "filter=xfade"], capture_output=True, text=True).stdout
+    effects = set(re.findall(r"^\s+(\w+)\s+-?\d+\s+\.\.FV", out, re.M))
+    assert len(effects) > 40 and {x for x in TRANSITIONS.values() if x} <= effects
+    assert TRANSITIONS["cut"] is None and TRANSITIONS["dissolve"] == "fade" and TRANSITIONS["fade"] == "fadeblack"

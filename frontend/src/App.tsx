@@ -1,0 +1,177 @@
+import { useCallback, useEffect, useState } from "react";
+import { api, type Health } from "./api";
+import { type FilmLabEvent, type StreamState, useEventStream } from "./events";
+import { DialogHost } from "./Dialog";
+import { LibraryPage } from "./Library";
+import { Login } from "./Login";
+import { SelfTestPage } from "./SelfTest";
+import { SettingsPage } from "./Settings";
+import { ContactSheet, SystemPage } from "./System";
+import { GpuMeters, type GpuSample } from "./GpuMeters";
+import { TrashPage } from "./Trash";
+import { ProjectView } from "./ProjectView";
+import { Projects } from "./Projects";
+import { alertOwner, dismissToast, setNotify, useNotifyState, useToasts } from "./notify";
+import { CommandPalette } from "./Palette";
+
+// Hash routes: #/ (projects) and #/p/<id> (project workspace).
+function useRoute() {
+  const [hash, setHash] = useState(location.hash);
+  useEffect(() => {
+    const on = () => setHash(location.hash);
+    addEventListener("hashchange", on);
+    return () => removeEventListener("hashchange", on);
+  }, []);
+  const sheet = hash.match(/^#\/p\/([0-9a-f]+)\/sheet/);
+  if (sheet) return { page: "sheet" as const, id: sheet[1] };
+  const m = hash.match(/^#\/p\/([0-9a-f]+)(\/edit)?/);
+  if (m) return { page: "project" as const, id: m[1], tab: m[2] ? "edit" as const : "storyboard" as const };
+  const cr = hash.match(/^#\/library\/create\/([0-9a-f]+)/);
+  if (cr) return { page: "library" as const, id: null, creation: cr[1] };
+  const l = hash.match(/^#\/library(?:\/([0-9a-f]+))?/);
+  if (l) return { page: "library" as const, id: l[1] ?? null, creation: null };
+  if (hash.startsWith("#/settings")) return { page: "settings" as const };
+  if (hash.startsWith("#/deleted")) return { page: "deleted" as const };
+  if (hash.startsWith("#/system")) return { page: "system" as const };
+  if (hash.startsWith("#/selftest")) return { page: "selftest" as const };
+  return { page: "projects" as const };
+}
+
+export type Listener = (e: FilmLabEvent) => void;
+
+export function App() {
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  useEffect(() => { api.me().then(setAuthed).catch(() => setAuthed(false)); }, []);
+  if (authed === null) return <div className="center muted">Loading…</div>;
+  if (!authed) return <Login onDone={() => setAuthed(true)} />;
+  return <><Studio onLogout={() => setAuthed(false)} /><DialogHost /></>;
+}
+
+function Studio({ onLogout }: { onLogout: () => void }) {
+  const route = useRoute();
+  const [health, setHealth] = useState<Health | null>(null);
+  const [listeners] = useState(() => new Set<Listener>());
+  const [resyncs] = useState(() => new Set<() => void>());
+  const [gpu, setGpu] = useState<GpuSample | null>(null);
+
+  const refreshHealth = useCallback(() => { api.health().then(setHealth).catch(() => setHealth(null)); }, []);
+  useEffect(() => {
+    refreshHealth();
+    const t = setInterval(refreshHealth, 15000);
+    return () => clearInterval(t);
+  }, [refreshHealth]);
+
+  const stream = useEventStream(
+    (e) => {
+      if (e.type === "system.gpu") { setGpu(e.payload as GpuSample); return; }
+      listeners.forEach((l) => l(e));
+      if (e.event_id !== null && (e.type === "render.done" || e.type === "render.ended")) renderFinished(e);
+    },
+    () => { resyncs.forEach((r) => r()); refreshHealth(); },
+  );
+
+  const subscribe = useCallback((l: Listener, r: () => void) => {
+    listeners.add(l); resyncs.add(r);
+    return () => { listeners.delete(l); resyncs.delete(r); };
+  }, [listeners, resyncs]);
+
+  return (
+    <div className="shell">
+      <header className="topbar">
+        <a className="brand" href="#/">FilmLab <span>Studio</span></a>
+        <nav className="nav">
+          <a href="#/" className={route.page === "projects" || route.page === "project" ? "on" : ""}>Projects</a>
+          <a href="#/library" className={route.page === "library" ? "on" : ""}>Library</a>
+          <a href="#/settings" className={route.page === "settings" ? "on" : ""}>Settings</a>
+          <a href="#/system" className={route.page === "system" ? "on" : ""}>Health &amp; backups</a>
+          <a href="#/deleted" className={route.page === "deleted" ? "on" : ""}>Recently deleted</a>
+        </nav>
+        <StatusBar health={health} stream={stream} />
+        <GpuMeters sample={stream === "live" ? gpu : null} />
+        <button className="ghost palette-open" title="Go to… (Ctrl K)" aria-label="Go to a project, shot or page"
+          onClick={() => window.dispatchEvent(new Event("filmlab:palette"))}>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" strokeWidth="1.8"
+            strokeLinecap="round" d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5 20 20" /></svg>
+          <kbd>Ctrl K</kbd>
+        </button>
+        <NotifyToggle />
+        <button className="ghost" onClick={() => api.logout().finally(onLogout)}>Sign out</button>
+      </header>
+      <Toasts />
+      <CommandPalette route={route} />
+      {route.page === "project" ? <ProjectView key={route.id} projectId={route.id} tab={route.tab} subscribe={subscribe} />
+        : route.page === "library" ? <LibraryPage assetId={route.id} creationId={route.creation} subscribe={subscribe} />
+          : route.page === "settings" ? <SettingsPage />
+          : route.page === "deleted" ? <TrashPage />
+          : route.page === "system" ? <SystemPage gpu={stream === "live" ? gpu : null} />
+          : route.page === "selftest" ? <SelfTestPage />
+          : route.page === "sheet" ? <ContactSheet projectId={route.id} />
+            : <Projects subscribe={subscribe} />}
+      <footer className="footer muted">Rendering by WanGP (deepbeepmeep/WanGP) via its MCP interface.</footer>
+    </div>
+  );
+}
+
+function Dot({ ok, label, title }: { ok: boolean | null; label: string; title?: string }) {
+  return <span className="status-item" title={title}><i className={`dot ${ok === null ? "warn" : ok ? "ok" : "bad"}`} />{label}</span>;
+}
+
+function StatusBar({ health, stream }: { health: Health | null; stream: StreamState }) {
+  const w = health?.wangp;
+  const queue = !w?.connected ? "" : !w.queue_total ? " · queue empty"
+    : ` · queue ${w.queue_total} (${w.queue_filmlab ?? 0} FilmLab / ${w.queue_other ?? 0} other), ${w.queue_running ?? 0} running`;
+  return (
+    <div className="statusbar" aria-live="polite">
+      <Dot ok={stream === "live" ? true : stream === "offline" ? false : null} label={`Events ${stream}`} />
+      <Dot ok={health ? health.director.connected : null} label="Director" />
+      <Dot ok={w ? w.connected : null} label={`WanGP${queue}`} title={w?.error} />
+    </div>
+  );
+}
+
+/** A render finished: say so (a toast here, or a system notification when the cockpit isn't in view). Replayed
+ *  events after a reconnect are old news, so only events newer than the page's first stream are announced. */
+const loadedAt = Date.now();
+function renderFinished(e: FilmLabEvent) {
+  const p = e.payload as { status?: string; shot_title?: string; shot_position?: number; project_title?: string };
+  if (p.status === "cancelled" || (e.timestamp && Date.parse(e.timestamp) < loadedAt)) return;
+  const ok = e.type === "render.done";
+  const shot = p.shot_title ? `${p.shot_position ? `${p.shot_position}. ` : ""}${p.shot_title}` : "A shot";
+  void alertOwner({
+    title: ok ? "Take ready" : "Render failed", kind: ok ? "ok" : "bad",
+    body: `${shot}${p.project_title ? ` · ${p.project_title}` : ""}`,
+    url: e.project_id ? `/#/p/${e.project_id}` : undefined,
+  });
+}
+
+function NotifyToggle() {
+  const state = useNotifyState();
+  if (state === "unsupported") return null;
+  const title = state === "on" ? "Notifications on: this device is told when a render finishes while FilmLab isn't in view"
+    : state === "blocked" ? "Notifications are blocked for this site in the browser's settings"
+      : "Tell this device when a render finishes while FilmLab isn't in view";
+  return (
+    <button className={`ghost bell ${state}`} title={title} aria-label={title} aria-pressed={state === "on"}
+      disabled={state === "blocked"} onClick={() => void setNotify(state !== "on")}>
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" strokeWidth="1.8"
+        strokeLinecap="round" strokeLinejoin="round" d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16zM10 20a2 2 0 0 0 4 0" />
+        {state !== "on" && <path stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" d="M4 4l16 16" />}</svg>
+    </button>
+  );
+}
+
+function Toasts() {
+  const toasts = useToasts();
+  return (
+    <div className="toasts" aria-live="polite">
+      {toasts.map((t) => (
+        <div key={t.id} className={`toast ${t.kind}`} role="status">
+          <button className="toast-body" onClick={() => { if (t.url) location.hash = t.url.replace(/^\/?/, ""); dismissToast(t.id); }}>
+            <strong>{t.title}</strong><span className="muted">{t.body}</span>
+          </button>
+          <button className="ghost small" aria-label="Dismiss" onClick={() => dismissToast(t.id)}>✕</button>
+        </div>
+      ))}
+    </div>
+  );
+}

@@ -1,0 +1,28 @@
+# Runtime / generated
+spikes/probe-output/
+spikes/render-output/
+*.mp4
+*.webm
+*.wav
+*.sqlite
+*.sqlite-*
+*.db
+__pycache__/
+.venv/
+node_modules/
+dist/
+# Secrets / local config
+*.env
+secrets/
+*.pem
+*.key
+
+# device-install copies (public CA cert), generated locally
+local/
+
+# Kept locally, not published: internal working notes, dev probes, local tool config,
+# and the owner's own notes for the director (USER.local.md overrides USER.md)
+docs/internal/
+spikes/
+.claude/
+agent/workspace/USER.local.md
