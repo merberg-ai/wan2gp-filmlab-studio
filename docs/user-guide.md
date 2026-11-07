@@ -79,6 +79,13 @@ Open a project's **Brief** (top of the storyboard), write what the film is about
 - Mention your Library assets **by name**, the setting, the style, and anything that must happen. Give the **target length**.
 - The director plans **scene by scene**: each scene's goal, time and place and mood, and its shots, each with a prompt, references, length, transition, **sound** and a reason. You can watch every step in the **Director** panel.
 - **Re-plan drafts** replaces draft shots that have no takes. Locked, approved and rendered shots always stay. **Plan more** adds after the current shots.
+- **Before you plan**, the Brief checks your brief against the project's settings and offers a one-click fix:
+  - the brief asks for a different length than the **target** (the director plans to the target);
+  - the brief has action, but the project's **style** asks for calm pacing and gentle camera moves (*Use the illustrated action style*);
+  - the brief says nobody speaks, but the style gives every shot a line (or the other way round);
+  - a name the brief uses isn't in the **Library**, or has no reference images yet.
+
+  **Keep as is** hides an item for that project. Planning with an item still open asks first.
 - **Chat** with the director for anything else: *"make shot 3 a close-up"*, *"add a scene where…"*. It edits drafts and explains each change in the shot's **History**.
 
 > [!NOTE]
@@ -88,7 +95,9 @@ Open a project's **Brief** (top of the storyboard), write what the film is about
 
 - The **film strip** at the top shows every shot as a frame sized by its length, grouped by scene, with the take the edit uses. Click a frame to open the shot; drag to reorder. A coloured bar shows each shot's state, and the running total is compared with your target length.
 - Below it are the **scenes** (edit their goal, time and place and mood; reorder or delete them) and their **shot cards**.
-- **Render storyboard…** reviews every shot with WanGP first (what will render, what can't and why, how long it should take) and then renders your selection as a **batch**, one shot at a time, in order. Pause, resume or cancel it from the batch bar, and retry failed shots.
+- **Select** lets you tick shots, or a whole scene, and then **Render…**, **Lock**, **Unlock**, **Change…** (model, size or length) or **Delete** them together. *Unlocked drafts* selects what a re-plan would replace. Locked, approved and rendering shots are skipped, with the reason.
+- Deleting a shot or a scene shows **Undo** for a few seconds; the shots are also in **Recently deleted** afterwards.
+- **Render storyboard…** reviews every shot with WanGP first (what will render, what can't and why, how long it should take) and then renders your selection as a **batch**, one shot at a time, in order. Pause, resume or cancel it from the batch bar, and retry failed shots. Tick **Preview first** for a preview batch (see [Rendering](#rendering)).
 
 ## Shots
 
@@ -101,7 +110,8 @@ A shot card shows its prompt, its **sound** summary, its references, and the dir
 | **Validate** | Asks WanGP whether it can render the shot, and at what size and length |
 | **History** | Every change to the shot: who made it, when and why |
 | **Lock** | The director can't change it and batches don't re-render it |
-| **Approve & render** / **Render new take** | Queues it in WanGP |
+| **Preview** | A quick take at half the width and height (see [Rendering](#rendering)) |
+| **Approve & render** / **Render new take** | Queues it in WanGP at full quality |
 
 **References:** each shot has up to eight reference images, in order. In the prompt they're `<Picture 1>`, `<Picture 2>`, … FilmLab warns before a render if the prompt names a picture the shot doesn't have, or doesn't state the scene's setting. Every shot is rendered on its own, so its prompt must say where and when it is.
 
@@ -127,6 +137,12 @@ The **Renders** panel shows what's rendering, WanGP's queue, progress and an **e
 
 - With a shot selected, the panel shows only its takes; **Show all** goes back to every shot. A note tells you when another shot gets a new take.
 - Renders queue in WanGP behind anything else it's doing. FilmLab never cancels or reorders other WanGP jobs.
+
+**Previews.** A preview renders the shot at half its width and height (about a quarter of the pixels, so several times faster), with the same model, prompt, references, sound and steps. Use it to judge timing, framing and continuity across the film before spending full-quality time:
+
+1. **Preview** a shot, or tick **Preview first** in *Render storyboard…* for the whole film.
+2. Preview takes are marked **P** and *Preview*. If one looks right, press **Render full quality** on it: the full render reuses the preview's seed, so it stays as close as the model allows (a different size is never pixel-identical).
+3. Until a shot has a full-quality take, the edit uses its preview (a rough cut) and says so; the final export scales it up.
 
 ## Reviewing takes
 

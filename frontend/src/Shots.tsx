@@ -7,6 +7,7 @@ import { ImagePicker, type Pick } from "./ImagePicker";
 import { SIZES } from "./ProjectSettings";
 import { lib, type Preset } from "./library-api";
 import { ShotReferences, templateOptions } from "./ShotRefs";
+import { deleteWithUndo } from "./bulk";
 
 export const STATUS_LABEL: Record<string, string> = {
   draft: "Draft", pending_approval: "Awaiting approval", approved: "Approved", queued: "Queued",
@@ -15,11 +16,15 @@ export const STATUS_LABEL: Record<string, string> = {
 /** Ask a shot card to open its editor (the reshoot card after a Reject sends it). */
 export const EDIT_SHOT = "filmlab:edit-shot";
 export const ACTIVE_JOB = new Set(["submitting", "queued", "running", "cancelling", "restored"]);
+export const PREVIEW_HINT = "A quick take at half the width and height (several times faster) with the same prompt, references, "
+  + "sound and seed: judge timing and framing first, then render full quality.";
 
-export function ShotCard({ shot, templates, selected, job, approval, onSelect, act, controls, drag }: {
+export function ShotCard({ shot, templates, selected, job, approval, onSelect, act, controls, drag, pick }: {
   shot: Shot; templates: Template[]; selected: boolean; job?: Job; approval?: { note: string; requested_by: string };
   onSelect: () => void; act: (fn: () => Promise<unknown>) => Promise<void>;
   controls?: ReactNode; drag?: HTMLAttributes<HTMLLIElement>;
+  /** Selecting shots for a bulk action (the storyboard's Select mode). */
+  pick?: { on: boolean; toggle: () => void };
 }) {
   const [editing, setEditing] = useState(false);
   const [history, setHistory] = useState(false);
@@ -39,14 +44,18 @@ export function ShotCard({ shot, templates, selected, job, approval, onSelect, a
   const canRender = ["draft", "pending_approval", "failed", "ready", "approved"].includes(shot.status) && !(job && ACTIVE_JOB.has(job.status));
 
   return (
-    <li id={`shot-${shot.id}`} className={`card shot ${selected ? "selected" : ""} ${locked ? "locked" : ""}`} {...drag}>
-      <button className="shot-title" onClick={onSelect} aria-expanded={selected}>
+    <li id={`shot-${shot.id}`} className={`card shot ${selected ? "selected" : ""} ${locked ? "locked" : ""} ${pick?.on ? "picked" : ""}`} {...drag}>
+      <div className="shot-head">
+      {pick && <input type="checkbox" className="shot-pick" checked={pick.on} onChange={pick.toggle}
+        aria-label={`Select shot ${shot.position} ${shot.title}`} />}
+      <button className="shot-title" onClick={pick ? pick.toggle : onSelect} aria-expanded={pick ? undefined : selected}>
         {drag?.draggable && <span className="grip" aria-hidden="true" title="Drag to reorder">⠿</span>}
         <span className="pos">{shot.position}</span>
         <strong>{shot.title}</strong>
         {locked && <span title="Locked: the director can't change it and batches don't re-render it">🔒</span>}
         <span className={`chip s-${shot.status}`}>{STATUS_LABEL[shot.status] ?? shot.status}</span>
       </button>
+      </div>
       <div className="meta muted small">
         {seconds(shot.frames)} s · {shot.frames} f · {shot.resolution} · {shot.template}
         {shot.template_explicit === false && <span className="tag" title="Switches automatically between the with- and without-references defaults">follows defaults</span>}
@@ -91,10 +100,13 @@ export function ShotCard({ shot, templates, selected, job, approval, onSelect, a
         {controls}
         {shot.status === "pending_approval" && <button className="ghost" onClick={() => act(() => api.rejectShot(shot.id))}>Reject</button>}
         {!editing && !locked && !(job && ACTIVE_JOB.has(job.status)) && shot.status !== "approved" && (
-          <button className="ghost danger-text" title="Move to Recently deleted (restorable)" onClick={() => act(async () => {
-            if (await ask(`Move shot ${shot.position} “${shot.title}” to Recently deleted? Its takes go with it; you can restore it from there.`))
-              await api.deleteShot(shot.id);
-          })}>Delete</button>
+          <button className="ghost danger-text" title="Move to Recently deleted, with its takes (Undo right after, or restore later)"
+            onClick={() => act(() => deleteWithUndo(shot.project_id, { shot_ids: [shot.id] }, `Deleted shot ${shot.position} “${shot.title}”`))}>Delete</button>
+        )}
+        {canRender && (
+          <button className="ghost" title={PREVIEW_HINT} onClick={() => act(async () => {
+            if (await confirmRender(shot.id, setCheck)) await api.approveAndRender(shot.id, true);
+          })}>Preview</button>
         )}
         {canRender && (
           <button className="primary" onClick={() => act(async () => {

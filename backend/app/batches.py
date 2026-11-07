@@ -50,7 +50,9 @@ class Batches:
 
     # --- start -----------------------------------------------------------
 
-    async def create(self, project_id: str, shot_ids: list[str], actor: str, queue_cap: int = 1) -> dict:
+    async def create(self, project_id: str, shot_ids: list[str], actor: str, queue_cap: int = 1,
+                     preview: bool = False) -> dict:
+        """preview: every shot renders as a quick low-resolution take (renders.PREVIEW_SCALE)."""
         if await self.db.fetchone("SELECT 1 FROM batches WHERE project_id = ? AND status IN ('running', 'paused')",
                                   (project_id,)):
             raise BatchError("this project already has a batch running or paused; finish or cancel it first")
@@ -70,13 +72,14 @@ class Batches:
         bid, ts = new_id(), now()
 
         def write(c):
-            c.execute("INSERT INTO batches (id, project_id, status, queue_cap, requested_by, created_at, updated_at) "
-                      "VALUES (?, ?, 'running', ?, ?, ?, ?)", (bid, project_id, max(1, min(int(queue_cap), 4)), actor, ts, ts))
+            c.execute("INSERT INTO batches (id, project_id, status, queue_cap, requested_by, created_at, updated_at, preview) "
+                      "VALUES (?, ?, 'running', ?, ?, ?, ?, ?)",
+                      (bid, project_id, max(1, min(int(queue_cap), 4)), actor, ts, ts, int(bool(preview))))
             for i, sid in enumerate(picked, start=1):
                 c.execute("INSERT INTO batch_items (batch_id, position, shot_id, updated_at) VALUES (?, ?, ?, ?)",
                           (bid, i, sid, ts))
         await self.db.transaction(write)
-        await self.db.audit(actor, "batch.create", bid, {"shots": picked})
+        await self.db.audit(actor, "batch.create", bid, {"shots": picked, "preview": bool(preview)})
         await self._changed(project_id, bid)
         await self.pump(bid)
         return await self.get(bid)
@@ -126,7 +129,7 @@ class Batches:
             return await mark("skipped", error=f"the shot is {shot['status']}")
         try:
             approved = await shots.approve(self.db, self.bus, shot, "owner")
-            job = await self.renders.submit(approved, "owner")
+            job = await self.renders.submit(approved, "owner", preview=bool(b.get("preview")))
         except (RenderError, shots.ShotError) as exc:
             await shots.undo_approve(self.db, self.bus, shot, "owner")
             log.info("batch %s: shot %s not rendered: %s", b["id"], shot["id"], exc)

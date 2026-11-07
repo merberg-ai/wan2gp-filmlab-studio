@@ -41,6 +41,23 @@ RESTART_GRACE_S = 600
 STALL_S = 600
 
 
+# A preview renders at half the width and height (about a quarter of the pixels, so several times faster) with the
+# same model, steps, seed, prompt, references and sound. Steps stay: every installed video model is distilled to
+# 4-10 steps, and fewer steps ruin the picture rather than just soften it.
+PREVIEW_SCALE = 0.5
+PREVIEW_MIN_SIDE = 256
+PREVIEW_BLOCK = 32  # WanGP sizes canvases in steps of 16-64; 32 keeps the aspect close and the size valid
+
+
+def preview_resolution(resolution: str) -> str:
+    """The preview size of a shot's resolution: e.g. 960x544 -> 480x288, 1280x720 -> 640x352."""
+    w, h = (int(x) for x in str(resolution).lower().split("x"))
+
+    def side(v: int) -> int:
+        return max(PREVIEW_MIN_SIDE, int(v * PREVIEW_SCALE / PREVIEW_BLOCK + 0.5) * PREVIEW_BLOCK)
+    return f"{min(side(w), w)}x{min(side(h), h)}"
+
+
 def queue_view(queue: dict, prefix: str | None, agent_context: str | None) -> dict:
     """Where a FilmLab task stands in WanGP's shared queue, and who owns what's running.
 
@@ -200,7 +217,14 @@ class RenderService:
 
     # --- lifecycle -------------------------------------------------------
 
-    async def submit(self, shot: dict, actor: str) -> dict:
+    async def render_settings(self, shot: dict, refs: list[dict], preview: bool) -> dict:
+        settings = await self.build_settings(shot, refs)
+        if preview:
+            settings["resolution"] = preview_resolution(shot["resolution"])
+        return settings
+
+    async def submit(self, shot: dict, actor: str, preview: bool = False) -> dict:
+        """preview: a quick low-resolution take (see PREVIEW_SCALE) to judge the shot before a full-quality render."""
         if self.gate and (held := await self.gate()):
             raise RenderError(held)
         if shot["status"] != "approved":
@@ -212,15 +236,16 @@ class RenderService:
         blocking = [i["message"] for i in issues if i["level"] == "block"]
         if blocking:
             raise RenderError("Can't render this shot: " + "; ".join(blocking))
-        settings = await self.build_settings(shot, refs)
+        settings = await self.render_settings(shot, refs, preview)
         job_id = new_id()
         request_id = f"filmlab-{job_id}"
         await self.db.execute(
-            "INSERT INTO render_jobs (id, project_id, shot_id, request_id, settings, refs, status, submitted_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'submitting', ?)",
-            (job_id, shot["project_id"], shot["id"], request_id, json.dumps(settings), json.dumps(refs), now()))
+            "INSERT INTO render_jobs (id, project_id, shot_id, request_id, settings, refs, status, submitted_at, preview) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'submitting', ?, ?)",
+            (job_id, shot["project_id"], shot["id"], request_id, json.dumps(settings), json.dumps(refs), now(),
+             int(bool(preview))))
         await self._set_shot(shot, "queued")
-        await self.db.audit(actor, "render.submit", shot["id"], {"job_id": job_id})
+        await self.db.audit(actor, "render.submit", shot["id"], {"job_id": job_id, "preview": bool(preview)})
         try:
             try:
                 await self._submit_to_wangp(job_id)
@@ -231,7 +256,7 @@ class RenderService:
                 log.warning("job %s: WanGP lost a reference upload; uploading again", job_id)
                 refs = await self.reupload_refs(refs)
                 shot = await self.reupload_voices(shot)
-                settings = await self.build_settings(shot, refs)
+                settings = await self.render_settings(shot, refs, preview)
                 # A fresh request_id: WanGP may have recorded the rejected request under the old one.
                 await self.db.execute("UPDATE render_jobs SET settings = ?, refs = ?, request_id = ? WHERE id = ?",
                                       (json.dumps(settings), json.dumps(refs), f"filmlab-{job_id}-r1", job_id))
@@ -437,9 +462,9 @@ class RenderService:
                       (thumb_media, job["project_id"], str(thumb_rel), thumb_digest,
                        (self.media_dir / thumb_rel).stat().st_size, ts))
             c.execute("INSERT INTO takes (id, shot_id, job_id, media_id, thumb_media_id, wangp_media_id, provenance, "
-                      "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                      "created_at, preview) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                       (take_id, job["shot_id"], job_id, video_media, thumb_media, wangp_media_id,
-                       json.dumps(provenance), ts))
+                       json.dumps(provenance), ts, int(job.get("preview") or 0)))
         await self.db.transaction(write)
         await self._finish(job_id, "done", take_id=take_id)
 
@@ -521,7 +546,8 @@ class RenderService:
                    "current_step": job["current_step"], "total_steps": job["total_steps"],
                    "recovered": bool(job["recovered"]), "error": job["error"],
                    "error_info": errors.describe(job["error_code"]), "queue_ahead": job["queue_ahead"],
-                   "queue_running": job["queue_running"], "stalled": bool(job["stalled"]), **extra}
+                   "queue_running": job["queue_running"], "stalled": bool(job["stalled"]),
+                   "preview": bool(job.get("preview")), **extra}
         if type_.endswith((".done", ".ended")):  # names for the cockpit's "render finished" notification
             names = await self.db.fetchone("SELECT s.title AS shot_title, s.position AS shot_position, p.title AS project_title "
                                            "FROM shots s JOIN projects p ON p.id = s.project_id WHERE s.id = ?", (job["shot_id"],))

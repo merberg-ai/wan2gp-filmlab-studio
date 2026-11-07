@@ -10,9 +10,9 @@ const secs = (s: Shot) => (s.frames - 1) / 24;
 /** The take the edit uses: the explicit choice, else the newest marked good, else the newest not rejected. */
 export function usedTake(shot: Shot, takes: Take[]): Take | undefined {
   const mine = takes.filter((t) => t.shot_id === shot.id);
-  return mine.find((t) => t.id === shot.selected_take_id)
-    ?? [...mine].reverse().find((t) => t.verdict === "good")
-    ?? [...mine].reverse().find((t) => t.verdict !== "reject");
+  const pick = (tier: Take[]) => [...tier].reverse().find((t) => t.verdict === "good") ?? [...tier].reverse().find((t) => t.verdict !== "reject");
+  // as the edit does (backend edit.chosen_take): the selection, else full-quality takes before previews
+  return mine.find((t) => t.id === shot.selected_take_id) ?? pick(mine.filter((t) => !t.preview)) ?? pick(mine.filter((t) => t.preview));
 }
 
 export function FilmStrip({ project, selected, onSelect, act }: {

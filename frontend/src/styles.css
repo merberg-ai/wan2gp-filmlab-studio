@@ -710,3 +710,32 @@ table.matrix { display: block; max-width: 100%; overflow-x: auto; }
   border-radius: 10px; cursor: pointer; }
 .vision-mode.on { border-color: rgba(217, 164, 65, 0.5); background: rgba(217, 164, 65, 0.06); }
 .vision-mode input { margin-top: 3px; }
+
+/* preview renders: quick low-resolution takes before full quality */
+.chip.preview { background: rgba(91, 155, 213, 0.16); color: var(--info); border-color: rgba(91, 155, 213, 0.35); }
+.thumb .preview-mark { position: absolute; bottom: 4px; left: 4px; padding: 0 4px; border-radius: 4px; font-size: 10px;
+  font-weight: 700; line-height: 14px; background: var(--info); color: #06121f; }
+.card.preview-next { display: grid; gap: 6px; margin-bottom: 8px; border-color: rgba(91, 155, 213, 0.35); }
+.card.preview-next p { margin: 0; }
+.preview-toggle { align-items: flex-start; gap: 8px; margin: 6px 0; }
+.preview-toggle input { margin-top: 3px; }
+
+/* the brief check before planning (Storyboard.tsx usePlanCheck) */
+.plan-check { display: grid; gap: 8px; margin: 8px 0; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid rgba(217, 164, 65, 0.35); background: rgba(217, 164, 65, 0.06); }
+.plan-issue { display: grid; gap: 4px; }
+.plan-issue p { margin: 0; }
+.plan-issue.info p { color: var(--muted); }
+
+/* storyboard Select mode (Storyboard.tsx BulkBar) */
+.shot-head { display: flex; align-items: center; gap: 8px; }
+.shot-head .shot-title { flex: 1; min-width: 0; }
+.shot-pick { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+.card.shot.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.card.bulk-bar { position: sticky; top: 64px; z-index: 5; display: grid; gap: 8px; border-color: rgba(217, 164, 65, 0.45); }
+.bulk-bar .row { flex-wrap: wrap; gap: 6px; }
+.bulk-change { align-items: flex-end; }
+.bulk-change label { display: grid; gap: 2px; }
+.bulk-change input { width: 80px; }
+.scene-head input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+.toast .primary.small { align-self: center; }

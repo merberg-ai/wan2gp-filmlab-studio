@@ -7,17 +7,23 @@ type Rates = ProjectDetail["render_rates"];
 /** WanGP's generation time leaves out loading and saving: about 13 s on this machine's recent renders. */
 const OVERHEAD_S = 15;
 
-/** Expected WanGP time for a shot, or null when its model hasn't rendered here yet. */
-export function expected(shot: Shot | undefined, rates: Rates): number | null {
-  const r = shot && rates?.[shot.model_type];
-  return r ? r.s_per_frame * shot.frames + OVERHEAD_S : null;
+/** A preview has a quarter of the pixels: until previews have rendered here, guess this share of a full render. */
+export const PREVIEW_SHARE = 0.3;
+
+/** Expected WanGP time for a shot (full quality, or a preview), or null when its model hasn't rendered here yet. */
+export function expected(shot: Shot | undefined, rates: Rates, preview = false): number | null {
+  if (!shot) return null;
+  const p = preview ? rates?.[`${shot.model_type}:preview`] : undefined;
+  if (p) return p.s_per_frame * shot.frames + OVERHEAD_S;
+  const r = rates?.[shot.model_type];
+  return r ? r.s_per_frame * shot.frames * (preview ? PREVIEW_SHARE : 1) + OVERHEAD_S : null;
 }
 
 /** For a job WanGP is working on: seconds left (never below 0) and seconds since it started; nulls when unknown. */
 export function jobEta(job: Job, shot: Shot | undefined, rates: Rates, now: number) {
   const start = job.started_at ? Date.parse(job.started_at) : NaN;
   const elapsed = Number.isFinite(start) ? Math.max(0, (now - start) / 1000) : null;
-  const total = expected(shot, rates);
+  const total = expected(shot, rates, !!job.preview);
   const left = total != null && elapsed != null ? total - elapsed : null;
   // a little past the estimate is normal ("almost done"); well past it (half again) is worth saying
   return { elapsed, left, over: left != null && left < 0, late: left != null && total != null && -left > total * 0.5 };

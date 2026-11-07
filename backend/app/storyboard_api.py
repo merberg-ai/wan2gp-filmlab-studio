@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from . import auth, shots, sound
+from . import auth, bulk, plan_check, shots, sound
 from .batches import BatchError
 from .db import now
 from .director.chat import ChatBusy
@@ -114,6 +114,38 @@ async def lock_shot(shot_id: str, body: LockIn, request: Request):
     return await s.storyboard.set_locked(shot_id, body.locked, OWNER)
 
 
+class BulkIn(BaseModel):
+    action: str
+    shot_ids: list[str] = Field(default_factory=list, max_length=200)
+    scene_ids: list[str] = Field(default_factory=list, max_length=50)
+    fields: dict = Field(default_factory=dict)  # for "set": template ("" = follow the defaults), resolution, frames
+
+
+class UndoIn(BaseModel):
+    token: str
+
+
+@router.post("/api/projects/{project_id}/bulk")
+async def bulk_action(project_id: str, body: BulkIn, request: Request):
+    """Delete, lock, unlock or change several shots (or whole scenes) at once; a delete can be undone."""
+    s = st(request)
+    await live_project(s, project_id)
+    try:
+        return await bulk.run(s, project_id, body.shot_ids, body.scene_ids, body.action, body.fields, OWNER)
+    except (bulk.BulkError, shots.ShotError, RenderError) as exc:
+        raise bad(exc) from exc
+
+
+@router.post("/api/projects/{project_id}/bulk/undo")
+async def bulk_undo(project_id: str, body: UndoIn, request: Request):
+    s = st(request)
+    await live_project(s, project_id)
+    try:
+        return await bulk.undo(s, project_id, body.token, OWNER)
+    except bulk.BulkError as exc:
+        raise bad(exc) from exc
+
+
 @router.get("/api/shots/{shot_id}/revisions")
 async def shot_revisions(shot_id: str, request: Request):
     s = st(request)
@@ -137,6 +169,14 @@ class PlanIn(BaseModel):
 
 
 PLAN_PARTS = 8  # a scene or two per part; storyboards hold at most 12 scenes
+
+
+@router.get("/api/projects/{project_id}/plan-check")
+async def check_plan(project_id: str, request: Request):
+    """What in the brief disagrees with the project's settings (length, style, Library names), before planning."""
+    s = st(request)
+    project = await live_project(s, project_id)
+    return {"issues": plan_check.check(project, await s.library.search("", None, limit=500))}
 
 
 @router.post("/api/projects/{project_id}/plan", status_code=202)
@@ -167,6 +207,7 @@ async def plan(project_id: str, body: PlanIn, request: Request):
 class BatchIn(BaseModel):
     shot_ids: list[str] = Field(min_length=1, max_length=60)
     request_id: str | None = None  # approving the director's request
+    preview: bool = False  # quick low-resolution takes first
 
 
 @router.get("/api/projects/{project_id}/batch-review")
@@ -213,7 +254,7 @@ async def create_batch(project_id: str, body: BatchIn, request: Request):
     if not s.wangp_ready.is_set():
         raise HTTPException(503, "WanGP is not connected; start WanGP with MCP enabled")
     try:
-        batch = await s.batches.create(project_id, body.shot_ids, OWNER)
+        batch = await s.batches.create(project_id, body.shot_ids, OWNER, preview=body.preview)
     except (BatchError, shots.ShotError) as exc:
         raise bad(exc) from exc
     if body.request_id:

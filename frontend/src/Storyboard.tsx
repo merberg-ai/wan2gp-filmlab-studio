@@ -1,11 +1,15 @@
 import { type DragEvent, type FormEvent, useEffect, useMemo, useState } from "react";
 import { ask } from "./Dialog";
-import { api, type Batch, type BatchReview, type ProjectDetail, type Scene, type Shot, type Template, seconds } from "./api";
+import { api, type Batch, type BatchReview, type PlanIssue, type ProjectDetail, type Scene, type Shot, type Template, seconds } from "./api";
 import { lib } from "./library-api";
-import { ACTIVE_JOB, ShotCard, ShotEditor } from "./Shots";
+import { ACTIVE_JOB, PREVIEW_HINT, ShotCard, ShotEditor } from "./Shots";
 import { RedoPanel } from "./Autonomy";
+import { deleteWithUndo } from "./bulk";
+import { SIZES } from "./ProjectSettings";
+import { showToast } from "./notify";
+import { templateOptions } from "./ShotRefs";
 import { FilmStrip } from "./FilmStrip";
-import { duration, etaText, expected, jobEta, useNow } from "./eta";
+import { duration, etaText, expected, jobEta, PREVIEW_SHARE, useNow } from "./eta";
 
 type Act = (fn: () => Promise<unknown>) => Promise<void>;
 const UNSORTED = "unsorted";
@@ -18,6 +22,23 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
   const [adding, setAdding] = useState<string | null>(null);  // scene id, UNSORTED, or null (closed)
   const [review, setReview] = useState<{ preselect?: string[]; requestId?: string } | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
+  // Select mode: shots (and whole scenes) for a bulk action
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [pickedScenes, setPickedScenes] = useState<Set<string>>(new Set());
+  useEffect(() => {  // drop what's gone (deleted elsewhere, or by the bulk action itself)
+    const live = new Set(project.shots.map((s) => s.id)), scenes = new Set(project.scenes.map((s) => s.id));
+    setPicked((p) => new Set([...p].filter((x) => live.has(x))));
+    setPickedScenes((p) => new Set([...p].filter((x) => scenes.has(x))));
+  }, [project.shots, project.scenes]);
+  const togglePick = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleScene = (sc: Scene) => {
+    const members = project.shots.filter((s) => s.scene_id === sc.id).map((s) => s.id);
+    const on = !pickedScenes.has(sc.id);
+    setPickedScenes((p) => { const n = new Set(p); if (on) n.add(sc.id); else n.delete(sc.id); return n; });
+    setPicked((p) => { const n = new Set(p); members.forEach((m) => (on ? n.add(m) : n.delete(m))); return n; });
+  };
+  const clearPicks = () => { setPicked(new Set()); setPickedScenes(new Set()); };
   const sceneIds = new Set(project.scenes.map((s) => s.id));
   const groups = useMemo(() => [
     ...project.scenes.map((sc) => ({ key: sc.id, scene: sc as Scene | null, shots: project.shots.filter((s) => s.scene_id === sc.id) })),
@@ -40,11 +61,12 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
   const shotCard = (s: Shot, i: number, group: typeof groups[number]) => {
     const job = lastJob(s.id);
     const busy = !!(job && ACTIVE_JOB.has(job.status));
-    const movable = !busy;
+    const movable = !busy && !picking;
     return (
       <ShotCard key={s.id} shot={s} templates={templates} selected={s.id === selected} job={job}
         approval={project.approvals.find((a) => a.shot_id === s.id)}
         onSelect={() => onSelect(s.id === selected ? null : s.id)} act={act}
+        pick={picking ? { on: picked.has(s.id), toggle: () => togglePick(s.id) } : undefined}
         drag={movable ? {
           draggable: true,
           onDragStart: (e) => { setDragging(s.id); e.dataTransfer.setData("text/x-filmlab-shot", s.id); e.dataTransfer.effectAllowed = "move"; },
@@ -79,6 +101,11 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
           {project.shots.length} shot{project.shots.length === 1 ? "" : "s"} · {total.toFixed(1)} s
           {project.target_seconds ? ` of ${project.target_seconds} s target` : ""}
         </span>
+        {project.shots.length > 0 && (
+          <button className={`ghost ${picking ? "on" : ""}`} aria-pressed={picking}
+            title="Select shots or whole scenes to render, lock, change or delete them together"
+            onClick={() => { setPicking((v) => !v); clearPicks(); }}>{picking ? "Done" : "Select"}</button>
+        )}
         <button className="ghost" onClick={() => act(() => api.createScene(project.id, { title: `Scene ${project.scenes.length + 1}` }))}>+ Scene</button>
         <button className="primary" disabled={!project.shots.length || !!(project.batch && ["running", "paused"].includes(project.batch.status))}
           onClick={() => setReview({})}>Render storyboard…</button>
@@ -93,6 +120,11 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
           <button className="primary small" onClick={() => setReview({ preselect: r.shot_ids, requestId: r.id })}>Review…</button>
         </div>
       ))}
+      {picking && (
+        <BulkBar project={project} templates={templates} shotIds={[...picked]} sceneIds={[...pickedScenes]} act={act}
+          onPick={(ids) => { setPicked(new Set(ids)); setPickedScenes(new Set()); }} onClear={clearPicks}
+          onRender={(ids) => setReview({ preselect: ids })} />
+      )}
       {project.batch && <BatchBar batch={project.batch} project={project} act={act} />}
       <RedoPanel project={project} act={act} />
       {review && <RenderReview project={project} {...review} onClose={() => setReview(null)} act={act} />}
@@ -100,7 +132,8 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
         <div key={g.key} className={`scene ${dragging ? "drop-target" : ""}`}
           onDragOver={(e) => { if (dragging) e.preventDefault(); }} onDrop={(e) => drop(e, g.key)}>
           {g.scene ? <SceneHeader scene={g.scene} index={project.scenes.indexOf(g.scene)} count={project.scenes.length}
-            shots={g.shots} act={act} onAdd={() => setAdding(g.key)} />
+            shots={g.shots} act={act} onAdd={() => setAdding(g.key)}
+            pick={picking ? { on: pickedScenes.has(g.scene.id), toggle: () => toggleScene(g.scene!) } : undefined} />
             : project.scenes.length > 0 && <div className="scene-head"><h3 className="muted">Unsorted</h3>
               <button className="ghost small" onClick={() => setAdding(UNSORTED)}>+ Shot</button></div>}
           {adding === g.key && (
@@ -127,8 +160,9 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
   );
 }
 
-function SceneHeader({ scene, index, count, shots, act, onAdd }: {
+function SceneHeader({ scene, index, count, shots, act, onAdd, pick }: {
   scene: Scene; index: number; count: number; shots: Shot[]; act: Act; onAdd: () => void;
+  pick?: { on: boolean; toggle: () => void };
 }) {
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState({ title: scene.title, goal: scene.goal, time_place: scene.time_place, mood: scene.mood });
@@ -151,6 +185,8 @@ function SceneHeader({ scene, index, count, shots, act, onAdd }: {
   }
   return (
     <div className="scene-head">
+      {pick && <input type="checkbox" checked={pick.on} onChange={pick.toggle} aria-label={`Select the whole scene ${scene.title}`}
+        title="The whole scene: deleting it removes the scene too" />}
       <h3>{scene.title}</h3>
       <span className="muted small grow">{[scene.time_place, scene.mood].filter(Boolean).join(" · ")}
         {shots.length ? ` · ${shots.length} shot${shots.length === 1 ? "" : "s"}, ${secs.toFixed(1)} s` : " · empty"}</span>
@@ -158,11 +194,9 @@ function SceneHeader({ scene, index, count, shots, act, onAdd }: {
       <button className="ghost small" disabled={index === count - 1} aria-label="Move scene down" onClick={() => act(() => api.moveScene(scene.id, index + 1))}>↓</button>
       <button className="ghost small" onClick={() => setEditing(true)}>Edit</button>
       <button className="ghost small" onClick={onAdd}>+ Shot</button>
-      <button className="ghost small danger-text" onClick={() => act(async () => {
-        if (shots.some((s) => s.locked)) throw new Error("This scene has locked shots; unlock or move them first.");
-        if (await ask(`Delete scene “${scene.title}”?${shots.length ? ` Its ${shots.length} shot(s) go to Recently deleted, where you can restore them.` : ""}`))
-          await api.deleteScene(scene.id);
-      })}>Delete</button>
+      <button className="ghost small danger-text" title="The scene goes and its shots to Recently deleted (Undo right after; locked shots stay)"
+        onClick={() => act(() => deleteWithUndo(scene.project_id, { scene_ids: [scene.id] },
+          `Deleted scene “${scene.title}”${shots.length ? ` and its ${shots.length} shot${shots.length === 1 ? "" : "s"}` : ""}`))}>Delete</button>
       {scene.goal && <p className="small muted scene-goal">{scene.goal}</p>}
     </div>
   );
@@ -181,16 +215,20 @@ function BriefPanel({ project, act }: { project: ProjectDetail; act: Act }) {
   useEffect(() => { setBrief(project.brief); setTarget(project.target_seconds ?? 0); }, [project.brief, project.target_seconds]);
   const dirty = brief !== project.brief || (target || null) !== (project.target_seconds || null);
   const busy = project.director_busy;
+  const check = usePlanCheck(project);
   const save = () => api.updateProject(project.id, { brief, target_seconds: target || 0 });
   const planNow = (replace: boolean) => act(async () => {
     if (brief.trim().length < 10) throw new Error("Write a brief first: a sentence or two is enough.");
+    if (dirty) await save();
+    const open = (await check.refresh()).filter((i) => i.level === "warn");
+    if (open.length && !await ask(open.map((i) => `• ${i.message}`).join("\n")
+      + "\n\nCancel to use the fixes in the Brief first.", { title: "Plan anyway?", confirm: "Plan anyway" })) return;
     if (replace && !await ask("Re-plan: the director's new plan replaces unlocked draft shots without takes "
       + "(they go to Recently deleted). Locked, approved and rendered shots stay. Go ahead?")) return;
-    if (dirty) await save();
     await api.plan(project.id, replace);
   });
   return (
-    <details className="card brief" open={!project.shots.length}>
+    <details className="card brief" open={!project.shots.length || check.issues.some((i) => i.level === "warn")}>
       <summary><strong>Brief</strong>{project.brief ? <span className="muted small"> · {project.brief.slice(0, 80)}{project.brief.length > 80 ? "…" : ""}</span>
         : <span className="muted small"> · what the film is about, in your words</span>}</summary>
       {project.style && <p className="muted small">Style ({project.template?.replace(/_/g, " ") ?? "custom"}): {project.style}</p>}
@@ -210,10 +248,130 @@ function BriefPanel({ project, act }: { project: ProjectDetail; act: Act }) {
           title={project.shots.length ? "Replace unlocked draft shots without takes with a new plan" : "The director plans scenes and shots from this brief"}
           onClick={() => planNow(project.shots.length > 0)}>{busy ? "Director is busy…" : project.shots.length ? "Re-plan drafts" : "Plan with director"}</button>
       </div>
+      {check.issues.length > 0 && (
+        <div className="plan-check" role="group" aria-label="Before you plan">
+          <strong className="small">Before you plan</strong>
+          {check.issues.map((i) => (
+            <div key={i.id} className={`plan-issue ${i.level}`}>
+              <p className="small">{i.message}</p>
+              <div className="row">
+                {i.fixes.map((f) => (
+                  <button key={f.label} className="primary small" disabled={busy}
+                    onClick={() => act(async () => { await api.updateProject(project.id, f.patch); })}>{f.label}</button>
+                ))}
+                <button className="ghost small" title="Don't mention this again for this project" onClick={() => check.dismiss(i.id)}>Keep as is</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <p className="small muted">The director writes draft scenes and shots with references from the Library and a reason for each; you see every
         step in the chat and every change in a shot's History. Nothing renders until you start it.</p>
     </details>
   );
+}
+
+const KEEP = "";
+const DEFAULTS = "__defaults";
+
+/** Select mode: what to do with the chosen shots (and whole scenes) at once. */
+function BulkBar({ project, templates, shotIds, sceneIds, act, onPick, onClear, onRender }: {
+  project: ProjectDetail; templates: Template[]; shotIds: string[]; sceneIds: string[]; act: Act;
+  onPick: (ids: string[]) => void; onClear: () => void; onRender: (ids: string[]) => void;
+}) {
+  const [changing, setChanging] = useState(false);
+  const [f, setF] = useState({ template: KEEP, resolution: KEEP, seconds: "" });
+  const n = shotIds.length;
+  const hasTakes = (id: string) => project.takes.some((t) => t.shot_id === id);
+  const drafts = project.shots.filter((s) => s.status === "draft" && !s.locked && !hasTakes(s.id)).map((s) => s.id);
+  const order = project.shots.map((s) => s.id);
+  const ids = order.filter((id) => shotIds.includes(id));  // storyboard order
+  const report = (what: string, r: { done: string[]; skipped: { position: number; title: string; reason: string }[] }) =>
+    showToast({ title: `${what} ${r.done.length} shot${r.done.length === 1 ? "" : "s"}`, kind: r.skipped.length ? "bad" : "ok",
+      body: r.skipped.length ? `Skipped ${r.skipped.map((s) => `${s.position}. ${s.title} (${s.reason})`).join("; ")}` : "" });
+  const lock = (on: boolean) => act(async () => report(on ? "Locked" : "Unlocked",
+    await api.bulk(project.id, { action: on ? "lock" : "unlock", shot_ids: ids })));
+  const apply = () => act(async () => {
+    const fields: { template?: string; resolution?: string; frames?: number } = {};
+    if (f.template) fields.template = f.template === DEFAULTS ? "" : f.template;
+    if (f.resolution) fields.resolution = f.resolution;
+    if (f.seconds) fields.frames = Math.round(Math.round(Number(f.seconds) * 24) / 8) * 8 + 1;
+    if (!Object.keys(fields).length) throw new Error("Choose a model, a size or a length to change.");
+    report("Changed", await api.bulk(project.id, { action: "set", shot_ids: ids, fields }));
+    setChanging(false);
+    setF({ template: KEEP, resolution: KEEP, seconds: "" });
+  });
+  const remove = () => act(async () => {
+    await deleteWithUndo(project.id, { shot_ids: ids, scene_ids: sceneIds },
+      `Deleted ${n} shot${n === 1 ? "" : "s"}${sceneIds.length ? ` and ${sceneIds.length} scene${sceneIds.length === 1 ? "" : "s"}` : ""}`);
+    onClear();
+  });
+  const { plain, refs } = templateOptions(templates);
+  return (
+    <div className="card bulk-bar" role="toolbar" aria-label="Selected shots">
+      <div className="row">
+        <strong className="grow">{n ? `${n} shot${n === 1 ? "" : "s"} selected` : "Select shots"}
+          {sceneIds.length ? <span className="muted small"> · {sceneIds.length} whole scene{sceneIds.length === 1 ? "" : "s"}</span> : null}</strong>
+        <span className="small muted">Select:</span>
+        <button className="ghost small" onClick={() => onPick(order)}>All</button>
+        <button className="ghost small" disabled={!drafts.length} title="Unlocked draft shots that have no takes yet: what a re-plan would replace"
+          onClick={() => onPick(drafts)}>Unlocked drafts ({drafts.length})</button>
+        <button className="ghost small" disabled={!n && !sceneIds.length} onClick={onClear}>None</button>
+      </div>
+      <div className="row">
+        <button className="primary small" disabled={!n} onClick={() => onRender(ids)}>Render…</button>
+        <button className="ghost small" disabled={!n} onClick={() => lock(true)}>Lock</button>
+        <button className="ghost small" disabled={!n} onClick={() => lock(false)}>Unlock</button>
+        <button className={`ghost small ${changing ? "on" : ""}`} disabled={!n} aria-expanded={changing}
+          onClick={() => setChanging((v) => !v)}>Change…</button>
+        <span className="grow" />
+        <button className="ghost small danger-text" disabled={!n && !sceneIds.length} onClick={remove}>Delete</button>
+      </div>
+      {changing && n > 0 && (
+        <div className="row bulk-change">
+          <label className="small">Model
+            <select value={f.template} onChange={(e) => setF({ ...f, template: e.target.value })}>
+              <option value={KEEP}>Keep each shot's</option>
+              <option value={DEFAULTS}>Follow the defaults</option>
+              {plain.length > 0 && <optgroup label="Without references">{plain.map((t) => <option key={t.template} value={t.template}>{t.template}</option>)}</optgroup>}
+              {refs.length > 0 && <optgroup label="With references">{refs.map((t) => <option key={t.template} value={t.template}>{t.template}</option>)}</optgroup>}
+            </select>
+          </label>
+          <label className="small">Size
+            <select value={f.resolution} onChange={(e) => setF({ ...f, resolution: e.target.value })}>
+              <option value={KEEP}>Keep each shot's</option>
+              {SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+          <label className="small">Length (s)
+            <input type="number" min={1} max={20} step={0.5} placeholder="keep" value={f.seconds}
+              onChange={(e) => setF({ ...f, seconds: e.target.value })} />
+          </label>
+          <button className="primary small" onClick={apply}>Apply to {n}</button>
+          <p className="small muted block">Locked, approved and rendering shots are skipped; every change shows in each shot's History.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The brief check (backend plan_check.py), refreshed when the brief or the settings change. "Keep as is" hides an
+ *  issue for this project in this browser; a changed brief or setting gives it a new id, so it shows again. */
+function usePlanCheck(project: ProjectDetail) {
+  const key = `filmlab:plan-check:${project.id}`;
+  const [all, setAll] = useState<PlanIssue[]>([]);
+  const [hidden, setHidden] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem(key) ?? "[]"); } catch { return []; } });
+  const refresh = async () => {
+    try { const { issues } = await api.planCheck(project.id); setAll(issues); return issues.filter((i) => !hidden.includes(i.id)); }
+    catch { return []; }  // a check that can't run never blocks planning
+  };
+  useEffect(() => { refresh(); }, [project.id, project.brief, project.target_seconds, project.style, project.template]);  // eslint-disable-line react-hooks/exhaustive-deps
+  const dismiss = (id: string) => {
+    const next = [...hidden, id];
+    setHidden(next);
+    try { localStorage.setItem(key, JSON.stringify(next.slice(-50))); } catch { /* private window: only for now */ }
+  };
+  return { issues: all.filter((i) => !hidden.includes(i.id)), refresh, dismiss };
 }
 
 const ITEM_LABEL: Record<string, string> = {
@@ -231,9 +389,9 @@ function BatchBar({ batch, project, act }: { batch: Batch; project: ProjectDetai
   const job = current && jobs.find((j) => j.id === current.job_id);
   const shotOf = (id: string) => project.shots.find((s) => s.id === id);
   // what's left: the current render's remainder plus every waiting shot, from past renders of the same model
-  const waiting = batch.items.filter((i) => i.status === "pending").map((i) => expected(shotOf(i.shot_id), project.render_rates));
+  const waiting = batch.items.filter((i) => i.status === "pending").map((i) => expected(shotOf(i.shot_id), project.render_rates, !!batch.preview));
   const cur = job && current ? (job.status === "running" ? jobEta(job, shotOf(current.shot_id), project.render_rates, now).left
-    : expected(shotOf(current.shot_id), project.render_rates)) : 0;
+    : expected(shotOf(current.shot_id), project.render_rates, !!batch.preview)) : 0;
   const parts = [cur, ...waiting];
   const known = parts.filter((x): x is number => x != null);
   const left = known.reduce((n, x) => n + Math.max(0, x), 0);
@@ -241,7 +399,7 @@ function BatchBar({ batch, project, act }: { batch: Batch; project: ProjectDetai
   return (
     <div className={`card batch ${batch.status}`}>
       <div className="row">
-        <strong className="grow">Batch · {done} of {batch.items.length} done
+        <strong className="grow">{batch.preview ? "Preview batch" : "Batch"} · {done} of {batch.items.length} done
           {batch.status === "paused" && " · paused"}{batch.status === "cancelled" && " · cancelled"}{batch.status === "done" && " · finished"}</strong>
         {batch.status === "running" && <button className="ghost small" title="Let the current render finish, then stop"
           onClick={() => act(() => api.batchAction(batch.id, "pause"))}>Pause</button>}
@@ -282,6 +440,7 @@ function RenderReview({ project, preselect, requestId, onClose, act }: {
   const [data, setData] = useState<BatchReview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [preview, setPreview] = useState(false);
   useEffect(() => {
     api.batchReview(project.id).then((d) => {
       setData(d);
@@ -291,10 +450,13 @@ function RenderReview({ project, preselect, requestId, onClose, act }: {
   if (error) return <div className="card review"><p className="error">{error}</p><button className="ghost" onClick={onClose}>Close</button></div>;
   if (!data) return <div className="card review"><p className="muted">Checking every shot with WanGP…</p></div>;
   const chosen = data.shots.filter((r) => picked.has(r.shot_id));
-  const known = chosen.filter((r) => data.rates[r.model_type]);
-  const gpu = known.reduce((n, r) => n + data.rates[r.model_type].s_per_frame * r.frames, 0);
+  // a preview batch uses past preview renders of the model, else a share of its full-quality rate (eta.ts)
+  const rateOf = (m: string) => (preview && data.rates[`${m}:preview`]) || data.rates[m];
+  const share = (m: string) => (preview && !data.rates[`${m}:preview`] ? PREVIEW_SHARE : 1);
+  const known = chosen.filter((r) => rateOf(r.model_type));
+  const gpu = known.reduce((n, r) => n + rateOf(r.model_type).s_per_frame * r.frames * share(r.model_type), 0);
   const samples = new Set(known.map((r) => r.model_type));
-  const basedOn = [...samples].reduce((n, m) => n + data.rates[m].samples, 0);
+  const basedOn = [...samples].reduce((n, m) => n + rateOf(m).samples, 0);
   const toggle = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   return (
     <div className="card review">
@@ -319,14 +481,20 @@ function RenderReview({ project, preselect, requestId, onClose, act }: {
         {chosen.length} shot{chosen.length === 1 ? "" : "s"} selected.
         {known.length ? ` About ${Math.max(1, Math.round(gpu / 60))} min of WanGP time for ${known.length === chosen.length ? "them" : `${known.length} of them`}, from ${basedOn} past render${basedOn === 1 ? "" : "s"} of the same model${known.length < chosen.length ? "; the others use a model not rendered here yet, so no estimate" : ""}.`
           : chosen.length ? " No estimate: these models haven't rendered on this machine yet." : ""}
+        {preview && known.some((r) => share(r.model_type) !== 1) ? " (A guess for previews: none of these models has rendered a preview here yet.)" : ""}
         {data.queue?.total ? ` WanGP's queue has ${data.queue.total} task${data.queue.total === 1 ? "" : "s"} now (${data.queue.other} not FilmLab's); the batch waits behind them.` : ""}
       </p>
+      <label className="row small preview-toggle" title={PREVIEW_HINT}>
+        <input type="checkbox" checked={preview} onChange={(e) => setPreview(e.target.checked)} />
+        <span><strong>Preview first</strong>: quick takes at half the width and height, to check timing, framing and continuity
+          across the film before spending full-quality render time.</span>
+      </label>
       <div className="actions">
         <button className="ghost" onClick={onClose}>Close</button>
         <button className="primary" disabled={!chosen.length} onClick={() => act(async () => {
-          await api.createBatch(project.id, chosen.map((r) => r.shot_id), requestId);
+          await api.createBatch(project.id, chosen.map((r) => r.shot_id), requestId, preview);
           onClose();
-        })}>Render {chosen.length} shot{chosen.length === 1 ? "" : "s"}</button>
+        })}>{preview ? "Preview" : "Render"} {chosen.length} shot{chosen.length === 1 ? "" : "s"}</button>
       </div>
     </div>
   );

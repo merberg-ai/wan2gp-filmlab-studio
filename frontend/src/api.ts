@@ -61,6 +61,16 @@ export interface BatchItem {
 export interface Batch {
   id: string; project_id: string; status: "running" | "paused" | "done" | "cancelled"; pause_reason: string | null;
   queue_cap: number; requested_by: string; created_at: string; finished_at: string | null; items: BatchItem[];
+  preview?: number | boolean;
+}
+export interface BulkResult {
+  action: string; done: string[]; skipped: { shot_id: string; position: number; title: string; reason: string }[];
+  scenes_deleted?: string[]; undo?: string | null; undo_s?: number;
+}
+/** Something in the brief that disagrees with the project's settings, found before planning. */
+export interface PlanIssue {
+  id: string; level: "warn" | "info"; message: string;
+  fixes: { label: string; patch: Partial<Pick<ProjectDetail, "target_seconds" | "style">> }[];
 }
 export interface BatchRequest { id: string; shot_ids: string[]; note: string; created_at: string }
 export interface Revision {
@@ -84,6 +94,8 @@ export interface Job {
   total_steps: number | null; recovered: number; error: string | null; submitted_at: string; finished_at: string | null;
   started_at?: string | null;
   error_info?: ErrorInfo | null; queue_ahead?: number | null; queue_running?: QueueOwner | null; stalled?: boolean;
+  /** A quick low-resolution render (half width and height) to judge the shot before full quality. */
+  preview?: boolean;
 }
 export interface Provenance {
   request_id: string; wangp_job_id: string; wangp_media_id: string; sha256: string;
@@ -97,6 +109,7 @@ export interface Take {
   id: string; shot_id: string; job_id: string; media_id: string; thumb_media_id: string | null; created_at: string;
   width: number; height: number; fps: number; frames: number; duration_s: number; has_audio: number; bytes: number;
   provenance?: Provenance | null; verdict?: "good" | "maybe" | "reject" | null; notes?: string;
+  preview?: boolean;
 }
 export interface Inspection {
   status: "running" | "done" | "failed"; verdict: "ok" | "flagged" | null; summary: string | null; sheet: boolean;
@@ -261,7 +274,7 @@ export const api = {
   createShot: (pid: string, s: Partial<Shot>) => request<Shot>("POST", `/api/projects/${pid}/shots`, s),
   updateShot: (id: string, s: Partial<Shot>) => request<Shot>("PATCH", `/api/shots/${id}`, s),
   updateProject: (id: string, p: { title?: string; logline?: string; default_resolution?: string; default_frames?: number;
-    brief?: string; target_seconds?: number | null; autonomy?: string }) =>
+    brief?: string; target_seconds?: number | null; autonomy?: string; style?: string | null }) =>
     request<ProjectDetail>("PATCH", `/api/projects/${id}`, p),
   deleteProject: (id: string) => request("DELETE", `/api/projects/${id}`),
   deleteShot: (id: string) => request("DELETE", `/api/shots/${id}`),
@@ -275,10 +288,14 @@ export const api = {
   lockShot: (id: string, locked: boolean) => request<Shot>("POST", `/api/shots/${id}/lock`, { locked }),
   revisions: (id: string) => request<Revision[]>("GET", `/api/shots/${id}/revisions`),
   restoreRevision: (id: string) => request<Shot>("POST", `/api/revisions/${id}/restore`),
+  bulk: (pid: string, b: { action: "delete" | "lock" | "unlock" | "set"; shot_ids?: string[]; scene_ids?: string[];
+    fields?: { template?: string; resolution?: string; frames?: number } }) => request<BulkResult>("POST", `/api/projects/${pid}/bulk`, b),
+  bulkUndo: (pid: string, token: string) => request("POST", `/api/projects/${pid}/bulk/undo`, { token }),
+  planCheck: (pid: string) => request<{ issues: PlanIssue[] }>("GET", `/api/projects/${pid}/plan-check`),
   plan: (pid: string, replaceDrafts: boolean) => request("POST", `/api/projects/${pid}/plan`, { replace_drafts: replaceDrafts }),
   batchReview: (pid: string) => request<BatchReview>("GET", `/api/projects/${pid}/batch-review`),
-  createBatch: (pid: string, shotIds: string[], requestId?: string) =>
-    request<Batch>("POST", `/api/projects/${pid}/batches`, { shot_ids: shotIds, request_id: requestId ?? null }),
+  createBatch: (pid: string, shotIds: string[], requestId?: string, preview = false) =>
+    request<Batch>("POST", `/api/projects/${pid}/batches`, { shot_ids: shotIds, request_id: requestId ?? null, preview }),
   batchAction: (id: string, action: "pause" | "resume" | "cancel") => request<Batch>("POST", `/api/batches/${id}/${action}`),
   retryItem: (id: string, position: number) => request<Batch>("POST", `/api/batches/${id}/items/${position}/retry`),
   rejectBatchRequest: (id: string) => request("POST", `/api/batch-requests/${id}/reject`),
@@ -317,7 +334,7 @@ export const api = {
   purge: (kind: TrashKind, id: string) => request<{ files_removed: number }>("DELETE", `/api/trash/${kind}/${id}`),
   enhanceShot: (id: string) => request<{ turn_id: string }>("POST", `/api/shots/${id}/enhance`),
   validateShot: (id: string) => request<Validation>("POST", `/api/shots/${id}/validate`),
-  approveAndRender: (id: string) => request<Job>("POST", `/api/shots/${id}/approve-and-render`),
+  approveAndRender: (id: string, preview = false) => request<Job>("POST", `/api/shots/${id}/approve-and-render`, { preview }),
   rejectShot: (id: string) => request<Shot>("POST", `/api/shots/${id}/reject`),
   cancelJob: (id: string) => request<Job>("POST", `/api/jobs/${id}/cancel`),
   chat: (pid: string) => request<ChatMessage[]>("GET", `/api/projects/${pid}/chat`),

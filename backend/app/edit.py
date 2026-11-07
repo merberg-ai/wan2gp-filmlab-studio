@@ -93,17 +93,21 @@ class Edit:
 
     async def chosen_take(self, shot: dict) -> dict | None:
         """The take the edit uses: the explicit selection, else the newest take marked good, else the newest
-        take not rejected."""
+        take not rejected; full-quality takes before previews."""
         rows = await self.db.fetchall(
-            "SELECT t.id, t.verdict, t.created_at, m.id AS media_id, m.rel_path, m.sha256, m.width, m.height, m.fps, "
+            "SELECT t.id, t.verdict, t.created_at, t.preview, m.id AS media_id, m.rel_path, m.sha256, m.width, m.height, m.fps, "
             "m.frames, m.duration_s, m.has_audio FROM takes t JOIN media m ON m.id = t.media_id "
             "WHERE t.shot_id = ? AND t.deleted_at IS NULL ORDER BY t.rowid DESC", (shot["id"],))
         if shot.get("selected_take_id"):
             pick = next((r for r in rows if r["id"] == shot["selected_take_id"]), None)
             if pick:
                 return pick
-        return next((r for r in rows if r["verdict"] == "good"), None) or \
-            next((r for r in rows if r["verdict"] != "reject"), None)
+        for tier in ([r for r in rows if not r["preview"]], [r for r in rows if r["preview"]]):
+            pick = next((r for r in tier if r["verdict"] == "good"), None) or \
+                next((r for r in tier if r["verdict"] != "reject"), None)
+            if pick:
+                return pick
+        return None
 
     # --- the edit document -------------------------------------------------
 
@@ -221,7 +225,7 @@ class Edit:
         w, h = (int(x) for x in project["default_resolution"].split("x"))
         order = await self.storyboard.order(project_id)
         texts = doc["texts"]
-        segments, issues = [], []
+        segments, issues, previews = [], [], []
 
         def titles_at(key):
             for t in texts:
@@ -243,6 +247,8 @@ class Edit:
             frames = take["frames"] or round((take["duration_s"] or 0) * (take["fps"] or fps))
             cin = min(int(c.get("in", 0)), max(frames - 1, 0))
             cout = min(int(c.get("out") or frames), frames)
+            if take["preview"]:
+                previews.append(str(shot["position"]))
             if take["fps"] and round(take["fps"]) != fps:
                 issues.append(f"shot {shot['position']} is {take['fps']:g} fps; it's conformed to {fps} fps on export")
             segments.append({
@@ -251,9 +257,12 @@ class Edit:
                 "src": {"width": take["width"], "height": take["height"], "fps": take["fps"], "frames": frames,
                         "has_audio": bool(take["has_audio"])},
                 "in": cin, "out": cout, "frames": max(cout - cin, 1), "gain_db": c.get("gain_db", 0.0),
-                "mute": bool(c.get("mute")), "transition": shot["transition"] or "cut",
+                "mute": bool(c.get("mute")), "transition": shot["transition"] or "cut", "preview": bool(take["preview"]),
                 "transition_s": c.get("transition_s", doc["settings"]["transition_s"])})
         titles_at("end")
+        if previews:
+            issues.append(f"shot{'s' if len(previews) > 1 else ''} {', '.join(previews)} use{'' if len(previews) > 1 else 's'} a "
+                          "preview take (low resolution, scaled up on export); render full quality before the final export")
         if segments:
             segments[-1] = segments[-1] | {"transition": "cut"}  # nothing to transition into after the last one
         t = 0.0

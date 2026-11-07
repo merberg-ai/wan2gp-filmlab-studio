@@ -253,6 +253,10 @@ class ProjectPatch(BaseModel):
     style: str | None = Field(default=None, max_length=2000)
 
 
+class RenderIn(BaseModel):
+    preview: bool = False  # a quick low-resolution take first (renders.PREVIEW_SCALE)
+
+
 class ShotIn(BaseModel):
     title: str | None = None
     description: str | None = None
@@ -463,9 +467,10 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
         shot_rows, jobs, takes, approvals = await s.db.fetchall_many(
             ("SELECT * FROM shots WHERE project_id = ? AND deleted_at IS NULL ORDER BY position", (project_id,)),
             ("SELECT id, shot_id, status, phase, current_step, total_steps, recovered, error, error_code, queue_ahead, "
-             "queue_running, stalled, submitted_at, started_at, finished_at FROM render_jobs WHERE project_id = ? "
+             "queue_running, stalled, submitted_at, started_at, finished_at, preview FROM render_jobs WHERE project_id = ? "
              "ORDER BY submitted_at", (project_id,)),
             ("SELECT t.id, t.shot_id, t.job_id, t.media_id, t.thumb_media_id, t.provenance, t.created_at, t.verdict, "
+             "t.preview, "
              "t.notes, m.width, "
              "m.height, m.fps, m.frames, m.duration_s, m.has_audio, m.bytes FROM takes t JOIN media m ON m.id = t.media_id "
              "JOIN shots s ON s.id = t.shot_id WHERE s.project_id = ? AND s.deleted_at IS NULL AND t.deleted_at IS NULL "
@@ -473,9 +478,10 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
              (project_id,)),
             ("SELECT * FROM approvals WHERE project_id = ? AND status = 'pending' ORDER BY created_at", (project_id,)))
         for j in jobs:
-            j["error_info"], j["stalled"] = errors.describe(j.pop("error_code")), bool(j["stalled"])
+            j["error_info"], j["stalled"], j["preview"] = errors.describe(j.pop("error_code")), bool(j["stalled"]), bool(j["preview"])
         for t in takes:
             t["provenance"] = json.loads(t["provenance"]) if t["provenance"] else None
+            t["preview"] = bool(t["preview"])
         refs = await s.db.fetchall(
             "SELECT r.shot_id, r.position, r.role, r.variant_id, r.file_id, v.name AS variant_name, v.version, "
             "v.locked, a.id AS asset_id, a.name AS asset_name, a.kind FROM shot_refs r JOIN shots sh ON sh.id = r.shot_id "
@@ -559,14 +565,14 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
             raise HTTPException(502, f"WanGP validation failed: {exc}") from exc
 
     @app.post("/api/shots/{shot_id}/approve-and-render")
-    async def approve_and_render(shot_id: str, request: Request, _=owner):
+    async def approve_and_render(shot_id: str, request: Request, body: RenderIn | None = None, _=owner):
         """The only path to a render: an authenticated owner action."""
         s = st(request)
         require_wangp(s)
         before = await shot_or_404(s, shot_id)
         try:
             shot = await shots.approve(s.db, s.bus, before, "owner")
-            return await s.renders.submit(shot, "owner")
+            return await s.renders.submit(shot, "owner", preview=bool(body and body.preview))
         except (shots.ShotError, RenderError) as exc:
             # Refused before a job existed (blocked model, active render, …): the shot goes back to how it was.
             await shots.undo_approve(s.db, s.bus, before, "owner")

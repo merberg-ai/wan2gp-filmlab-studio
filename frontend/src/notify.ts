@@ -51,7 +51,11 @@ export function useNotifyState(): NotifyState {
 
 // --- toasts -----------------------------------------------------------------
 
-export interface Toast { id: number; title: string; body: string; kind: "ok" | "bad"; url?: string }
+export interface Toast {
+  id: number; title: string; body: string; kind: "ok" | "bad"; url?: string;
+  /** A button on the toast, e.g. Undo; the toast closes once it ran. */
+  action?: { label: string; run: () => unknown };
+}
 let toasts: Toast[] = [];
 let nextId = 1;
 const toastWatchers = new Set<(t: Toast[]) => void>();
@@ -63,6 +67,14 @@ export function useToasts(): Toast[] {
   const [t, setT] = useState(toasts);
   useEffect(() => { toastWatchers.add(setT); return () => { toastWatchers.delete(setT); }; }, []);
   return t;
+}
+
+/** A toast now, whatever the page's visibility (for what the owner just did, e.g. a delete they can undo). */
+export function showToast(t: Omit<Toast, "id">, ms = 8000) {
+  const toast = { ...t, id: nextId++ };
+  toasts = [...toasts.slice(-3), toast];
+  emit();
+  window.setTimeout(() => dismissToast(toast.id), ms);
 }
 
 /** Tell the owner something finished: a toast if they're looking, else a system notification if turned on. */

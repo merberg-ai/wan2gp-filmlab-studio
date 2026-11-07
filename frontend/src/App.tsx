@@ -11,7 +11,7 @@ import { GpuMeters, type GpuSample } from "./GpuMeters";
 import { TrashPage } from "./Trash";
 import { ProjectView } from "./ProjectView";
 import { Projects } from "./Projects";
-import { alertOwner, dismissToast, setNotify, useNotifyState, useToasts } from "./notify";
+import { alertOwner, dismissToast, setNotify, showToast, useNotifyState, useToasts } from "./notify";
 import { CommandPalette } from "./Palette";
 
 // Hash routes: #/ (projects) and #/p/<id> (project workspace).
@@ -169,6 +169,10 @@ function Toasts() {
           <button className="toast-body" onClick={() => { if (t.url) location.hash = t.url.replace(/^\/?/, ""); dismissToast(t.id); }}>
             <strong>{t.title}</strong><span className="muted">{t.body}</span>
           </button>
+          {t.action && <button className="primary small" onClick={async () => {
+            dismissToast(t.id);
+            try { await t.action!.run(); } catch (e) { showToast({ title: "Couldn't do that", body: (e as Error).message, kind: "bad" }); }
+          }}>{t.action.label}</button>}
           <button className="ghost small" aria-label="Dismiss" onClick={() => dismissToast(t.id)}>✕</button>
         </div>
       ))}

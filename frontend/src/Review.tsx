@@ -16,7 +16,10 @@ export function TakeReview({ take, shot, used, act, onCompare, newest, shotBusy,
   return (
     <div className="take-review">
       {take.verdict === "reject" && shot && newest && (
-        <Reshoot shot={shot} notes={notes} act={act} shotBusy={!!shotBusy} queueBusy={!!queueBusy} />
+        <Reshoot shot={shot} notes={notes} act={act} shotBusy={!!shotBusy} queueBusy={!!queueBusy} preview={!!take.preview} />
+      )}
+      {take.preview && take.verdict !== "reject" && shot && newest && (
+        <FullQuality shot={shot} take={take} act={act} shotBusy={!!shotBusy} queueBusy={!!queueBusy} />
       )}
       <div className="row">
         {(["good", "maybe", "reject"] as const).map((v) => (
@@ -41,15 +44,43 @@ export function TakeReview({ take, shot, used, act, onCompare, newest, shotBusy,
   );
 }
 
-/** After a take is rejected: render the shot again, edit it first, or ask the director for a fix. */
-function Reshoot({ shot, notes, act, shotBusy, queueBusy }: {
-  shot: Shot; notes: string; act: Act; shotBusy: boolean; queueBusy: boolean;
+const RENDERABLE = ["draft", "pending_approval", "failed", "ready", "approved"];
+
+/** A preview take that looks right: render the shot at full quality (same prompt, references, sound and seed). */
+function FullQuality({ shot, take, act, shotBusy, queueBusy }: {
+  shot: Shot; take: Take; act: Act; shotBusy: boolean; queueBusy: boolean;
 }) {
-  const renderable = ["draft", "pending_approval", "failed", "ready", "approved"].includes(shot.status);
+  const seed = take.provenance?.seed;
+  const full = () => act(async () => {
+    // the full render repeats the preview's seed, so it keeps its composition as closely as the model allows
+    if (seed != null && seed !== -1 && shot.seed === -1 && !shot.locked && ["draft", "failed", "pending_approval", "ready"].includes(shot.status))
+      await api.updateShot(shot.id, { seed });
+    if (await confirmRender(shot.id, () => undefined)) await api.approveAndRender(shot.id);
+  });
+  return (
+    <div className="card preview-next" role="group" aria-label="Preview take">
+      <p className="small"><span className="chip preview">Preview</span> {take.width}×{take.height}, quick and low resolution.
+        {" "}Timing and framing right? Render it at full quality ({shot.resolution}).</p>
+      <div className="row">
+        {shotBusy ? <span className="chip s-rendering">A new take is rendering</span> : RENDERABLE.includes(shot.status) && (
+          <button className="primary small" title={`Same prompt, references and sound${seed != null && seed !== -1 ? `, and this preview's seed (${seed})` : ""}`}
+            onClick={full}>{queueBusy ? "Queue full quality" : "Render full quality"}</button>
+        )}
+        <span className="small muted">Or mark it 👎 to reshoot it.</span>
+      </div>
+    </div>
+  );
+}
+
+/** After a take is rejected: render the shot again, edit it first, or ask the director for a fix. */
+function Reshoot({ shot, notes, act, shotBusy, queueBusy, preview }: {
+  shot: Shot; notes: string; act: Act; shotBusy: boolean; queueBusy: boolean; preview: boolean;
+}) {
+  const renderable = RENDERABLE.includes(shot.status);
   const editable = ["draft", "failed", "pending_approval", "ready"].includes(shot.status) && !shot.locked;
   const again = () => act(async () => {
     if (shot.seed !== -1 && editable) await api.updateShot(shot.id, { seed: -1 });  // a fresh roll, not the same take
-    if (await confirmRender(shot.id, () => undefined)) await api.approveAndRender(shot.id);
+    if (await confirmRender(shot.id, () => undefined)) await api.approveAndRender(shot.id, preview);
   });
   const edit = () => window.dispatchEvent(new CustomEvent(EDIT_SHOT, { detail: { shotId: shot.id } }));
   const askDirector = () => act(() => api.sendChat(shot.project_id,
@@ -62,7 +93,8 @@ function Reshoot({ shot, notes, act, shotBusy, queueBusy }: {
       <div className="row">
         {shotBusy ? <span className="chip s-rendering">A new take is rendering</span> : renderable && (
           <button className="primary small" title={queueBusy ? "WanGP is busy: this waits in its queue and starts after the current renders"
-            : "Render the same shot again with a new random seed"} onClick={again}>{queueBusy ? "Add to queue" : "Render again"}</button>
+            : `Render the same shot again with a new random seed${preview ? ", as a preview" : ""}`} onClick={again}>
+            {queueBusy ? "Add to queue" : preview ? "Preview again" : "Render again"}</button>
         )}
         {editable && <button className="ghost small" onClick={edit}>Edit the shot first</button>}
         {!shot.locked && <button className="ghost small" title="The director looks at the take and proposes a revised prompt; you approve it"

@@ -68,14 +68,16 @@ class Storyboard:
         await self.db.transaction(write)
 
     async def rates(self) -> dict:
-        """Seconds of WanGP generation per frame, per model, from this machine's own past takes."""
-        rows = await self.db.fetchall("SELECT t.provenance, m.frames FROM takes t JOIN media m ON m.id = t.media_id "
+        """Seconds of WanGP generation per frame, per model, from this machine's own past takes. Preview takes
+        count apart, under "<model_type>:preview"."""
+        rows = await self.db.fetchall("SELECT t.provenance, t.preview, m.frames FROM takes t JOIN media m ON m.id = t.media_id "
                                       "WHERE t.provenance IS NOT NULL")
         samples: dict[str, list[float]] = {}
         for r in rows:
             p = json.loads(r["provenance"])
             if p.get("generation_s") and p.get("model_type") and r["frames"]:
-                samples.setdefault(p["model_type"], []).append(p["generation_s"] / r["frames"])
+                key = p["model_type"] + (":preview" if r["preview"] else "")
+                samples.setdefault(key, []).append(p["generation_s"] / r["frames"])
         return {k: {"s_per_frame": sum(v) / len(v), "samples": len(v)} for k, v in samples.items()}
 
     async def estimate(self, shot_rows: list[dict]) -> dict:

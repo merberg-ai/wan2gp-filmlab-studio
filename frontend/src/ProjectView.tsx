@@ -273,7 +273,8 @@ function MonitorPanel({ project, shot, takes, take, onTake, act, onShowAll }: {
       {active.length === 0 && <p className="muted small">Nothing rendering.</p>}
       {active.map((j) => (
         <div key={j.id} className="card job">
-          <div className="row"><strong>{title(j.shot_id)}</strong><span className="chip s-rendering">{j.status}</span></div>
+          <div className="row"><strong>{title(j.shot_id)}</strong>{j.preview && <span className="chip preview">Preview</span>}
+            <span className="chip s-rendering">{j.status}</span></div>
           <div className="small">{progressText(j)}</div>
           {j.status === "running" && (() => {
             const eta = etaText(j, project.shots.find((s) => s.id === j.shot_id), project.render_rates, now);
@@ -306,7 +307,7 @@ function MonitorPanel({ project, shot, takes, take, onTake, act, onShowAll }: {
             poster={take.thumb_media_id ? api.mediaUrl(take.thumb_media_id) : undefined} />
           <p className="muted small">
             {take.width}×{take.height} · {take.fps} fps · {take.frames} f · {take.duration_s?.toFixed(2)} s
-            {take.has_audio ? " · audio" : ""} · {(take.bytes / 1e6).toFixed(1)} MB
+            {take.has_audio ? " · audio" : ""} · {(take.bytes / 1e6).toFixed(1)} MB{take.preview ? " · preview" : ""}
           </p>
           <TakeReview take={take} shot={takeShot} used={used?.id === take.id} act={act}
             newest={shotTakes[shotTakes.length - 1]?.id === take.id}
@@ -327,6 +328,7 @@ function MonitorPanel({ project, shot, takes, take, onTake, act, onShowAll }: {
             title={`${new Date(t.created_at).toLocaleString()}${t.verdict ? ` · ${t.verdict}` : ""}${t.notes ? ` · ${t.notes}` : ""}`}>
             {t.thumb_media_id ? <img src={api.mediaUrl(t.thumb_media_id)} alt={`take of ${title(t.shot_id)}`} loading="lazy" /> : "take"}
             {t.verdict && <span className="verdict-dot" aria-label={t.verdict} />}
+            {t.preview && <span className="preview-mark" title="Preview: quick and low resolution">P</span>}
             {project.inspections?.[t.id]?.verdict === "flagged" && <span className="insp-flag" title={project.inspections[t.id].summary ?? ""}>⚠</span>}
           </button>
         ))}
@@ -344,7 +346,7 @@ function HistoryItem({ job, title }: { job: Job; title: string | null }) {
   const secs = job.finished_at ? Math.round((Date.parse(job.finished_at) - Date.parse(job.submitted_at)) / 1000) : null;
   return (
     <li className={`hist hist-${job.status}`}>
-      <span>{title && <strong>{title} · </strong>}{OUTCOME[job.status] ?? job.status}{job.recovered ? " (recovered)" : ""}</span>
+      <span>{title && <strong>{title} · </strong>}{job.preview ? "preview " : ""}{OUTCOME[job.status] ?? job.status}{job.recovered ? " (recovered)" : ""}</span>
       <span className="muted"> · {when}{secs != null ? ` · ${secs} s` : ""}</span>
       {job.error_info && job.status !== "cancelled" && (
         <span className="block">{job.error_info.message} {job.error_info.hint}</span>
