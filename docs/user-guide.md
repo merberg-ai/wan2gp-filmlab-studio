@@ -23,7 +23,7 @@ How to make a film with FilmLab Studio, screen by screen.
 
 | Area | What it's for |
 |---|---|
-| **Top bar** | Pages (Projects, Library, Settings, Health & backups, Recently deleted), status lights for **Events**, **Director** and **WanGP** (with its queue), live **GPU** and **VRAM** meters, 🔍 **Go to** (Ctrl + K), 🔔 notifications, sign out |
+| **Top bar** | Pages (Projects, Library, Settings, Health & backups, Recently deleted), the FilmLab version, a **WanGP** status light with its queue (and **Events** when live updates are down), live **GPU** and **VRAM** meters, 🔍 **Go to** (Ctrl + K), 🔔 notifications, sign out |
 | **Project view** | Three panels: **Storyboard**, **Director** chat, **Renders**. On a phone they become tabs |
 
 Everything updates live: progress, new takes and the director's replies appear without reloading. A toast tells you when a render finishes; with 🔔 on, you also get a system notification when FilmLab isn't on screen.
@@ -104,7 +104,8 @@ Open a project's **Brief** (top of the storyboard), write what the film is about
 - A shot with a problem a render would report (a picture the prompt names but the shot doesn't have, a setting the prompt doesn't state, speech that isn't set, …) shows **⚠** with the count. Open the shot to read them and press **✨ Fix with director** (it changes only what's listed and keeps the rest of the prompt) or **Edit**. **✨ Fix N with director** in the storyboard header does every flagged shot at once.
 - The director can't leave a prompt without its scene's **place and time of day**: a plan or prompt change that does is refused, and it rewrites it. (Light, weather and mood are up to the prompt.) Your own edits are never refused; they get the ⚠ instead.
 - **Select** lets you tick shots, or a whole scene, and then **Render…**, **Lock**, **Unlock**, **Change…** (model, size or length) or **Delete** them together. *Unlocked drafts* selects what a re-plan would replace. Locked, approved and rendering shots are skipped, with the reason.
-- Deleting a shot or a scene shows **Undo** for a few seconds; the shots are also in **Recently deleted** afterwards.
+- Deleting a shot or a scene shows **Undo** for a few seconds; the shots are also in **Recently deleted** afterwards. A deleted shot's takes, renders and pending redo go with it.
+- **Clear…** starts the storyboard over: every shot and scene goes to Recently deleted (locked shots and their scenes stay), and the director starts a fresh conversation so the next plan doesn't build on the old one. **Undo** brings it all back.
 - **Render storyboard…** reviews every shot with WanGP first (what will render, what can't and why, how long it should take) and then renders your selection as a **batch**, one shot at a time, in order. Pause, resume or cancel it from the batch bar, and retry failed shots. Tick **Preview first** for a preview batch (see [Rendering](#rendering)).
   - The review says roughly **when it will be done** ("Done around 9:10 PM"), from this PC's past renders.
   - **Start at a set time** schedules it, for example overnight: it waits, paused, and starts by itself (FilmLab must be running then). **Start now** starts it early.

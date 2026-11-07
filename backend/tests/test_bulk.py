@@ -44,3 +44,28 @@ def test_bulk_lock_and_set_skip_what_they_cant_change(make_harness):
     bad = h.post(f"/api/projects/{pid}/bulk", {"action": "set", "shot_ids": ids, "fields": {"resolution": "big"}})
     assert bad.status_code in (409, 422)
     assert h.post(f"/api/projects/{pid}/bulk", {"action": "explode", "shot_ids": ids}).status_code in (409, 422)
+
+
+def test_clearing_the_storyboard_leaves_no_renders_batch_or_redo_behind(make_harness):
+    """Live: after deleting every shot and re-planning, the old renders and the finished batch still showed."""
+    from tests.test_storyboard import wait_batch
+    h = make_harness().login()
+    pid = new_project(h)
+    ids = three_shots(h, pid)
+    h.post(f"/api/projects/{pid}/batches", {"shot_ids": ids})
+    wait_batch(h, pid, lambda b: b["status"] == "done", "rendered")
+    proj = h.project(pid)
+    assert len(proj["jobs"]) == 3 and len(proj["takes"]) == 3
+    h.c.portal.call(h.studio.runs.propose, pid, ids[0], "the light is wrong, warmer", None, None)
+    out = h.post(f"/api/projects/{pid}/bulk", {"action": "delete", "shot_ids": ids,
+                                                "scene_ids": [sc["id"] for sc in proj["scenes"]]}).json()
+    assert out["done"] == ids
+    proj = h.project(pid)
+    assert proj["shots"] == proj["scenes"] == proj["jobs"] == proj["takes"] == [] and proj["batch"] is None
+    assert not h.c.portal.call(h.studio.runs.proposals, pid)
+    pending = h.c.portal.call(h.studio.db.fetchall, "SELECT id FROM redo_proposals WHERE status = 'pending'")
+    assert not pending
+    # Undo brings it all back: the shots, their renders and the batch
+    h.post(f"/api/projects/{pid}/bulk/undo", {"token": out["undo"]})
+    proj = h.project(pid)
+    assert len(proj["shots"]) == 3 and len(proj["jobs"]) == 3 and proj["batch"]["status"] == "done"

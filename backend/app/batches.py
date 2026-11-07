@@ -54,9 +54,11 @@ class Batches:
         return b
 
     async def latest(self, project_id: str) -> dict | None:
-        row = await self.db.fetchone("SELECT id FROM batches WHERE project_id = ? ORDER BY "
-                                     "CASE WHEN status IN ('running', 'paused') THEN 0 ELSE 1 END, created_at DESC LIMIT 1",
-                                     (project_id,))
+        # a finished batch whose shots were all deleted is history, not the storyboard's latest batch
+        row = await self.db.fetchone(
+            "SELECT id FROM batches b WHERE project_id = ? AND (status IN ('running', 'paused') OR EXISTS (SELECT 1 FROM "
+            "batch_items i JOIN shots s ON s.id = i.shot_id WHERE i.batch_id = b.id AND s.deleted_at IS NULL)) ORDER BY "
+            "CASE WHEN status IN ('running', 'paused') THEN 0 ELSE 1 END, created_at DESC LIMIT 1", (project_id,))
         return await self.get(row["id"]) if row else None
 
     # --- start -----------------------------------------------------------

@@ -120,6 +120,11 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
         {project.shots.length > 0 && <button className="ghost" title="Play the storyboard as timed stills, with transitions and the edit's music"
           onClick={() => setAnimatic(true)}>▶ Animatic</button>}
         <button className="ghost" onClick={() => act(() => api.createScene(project.id, { title: `Scene ${project.scenes.length + 1}` }))}>+ Scene</button>
+        {(project.shots.length > 0 || project.scenes.length > 0) && (
+          <button className="ghost danger-text" disabled={project.director_busy}
+            title="Start over: every shot and scene goes to Recently deleted with its takes (locked shots stay), and the director forgets the old plan"
+            onClick={() => act(() => clearStoryboard(project))}>Clear…</button>
+        )}
         <button className="primary" disabled={!project.shots.length || !!(project.batch && ["running", "paused"].includes(project.batch.status))}
           onClick={() => setReview({})}>Render storyboard…</button>
       </div>
@@ -456,6 +461,21 @@ function usePlanCheck(project: ProjectDetail) {
 const ITEM_LABEL: Record<string, string> = {
   pending: "waiting", rendering: "rendering", done: "done", failed: "failed", skipped: "skipped", cancelled: "cancelled",
 };
+
+/** Start over: every unlocked shot and every scene to Recently deleted (Undo right after), and a fresh director
+ *  conversation so the next plan doesn't build on the old one. */
+async function clearStoryboard(project: ProjectDetail) {
+  const locked = project.shots.filter((s) => s.locked).length;
+  const n = project.shots.length - locked;
+  if (!await ask(`Clear the storyboard? ${n} shot${n === 1 ? "" : "s"} and ${project.scenes.length} scene`
+    + `${project.scenes.length === 1 ? "" : "s"} go to Recently deleted, with their takes`
+    + `${locked ? `; the ${locked} locked shot${locked === 1 ? "" : "s"} and ${locked === 1 ? "its scene stay" : "their scenes stay"}` : ""}.`
+    + " The director starts a fresh conversation, so your next plan starts clean. You can Undo right after.",
+  { confirm: "Delete" })) return;
+  await deleteWithUndo(project.id, { shot_ids: project.shots.map((s) => s.id), scene_ids: project.scenes.map((s) => s.id) },
+    "Storyboard cleared");
+  await api.freshChat(project.id).catch(() => undefined);  // the director may be answering; the plan still works
+}
 
 function BatchBar({ batch, project, act }: { batch: Batch; project: ProjectDetail; act: Act }) {
   const jobs = project.jobs;

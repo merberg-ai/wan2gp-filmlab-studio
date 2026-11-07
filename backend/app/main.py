@@ -468,6 +468,7 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
             ("SELECT * FROM shots WHERE project_id = ? AND deleted_at IS NULL ORDER BY position", (project_id,)),
             ("SELECT id, shot_id, status, phase, current_step, total_steps, recovered, error, error_code, queue_ahead, "
              "queue_running, stalled, submitted_at, started_at, finished_at, preview FROM render_jobs WHERE project_id = ? "
+             "AND shot_id IN (SELECT id FROM shots WHERE deleted_at IS NULL) "  # a deleted shot's renders go with it
              "ORDER BY submitted_at", (project_id,)),
             ("SELECT t.id, t.shot_id, t.job_id, t.media_id, t.thumb_media_id, t.provenance, t.created_at, t.verdict, "
              "t.preview, "

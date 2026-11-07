@@ -89,7 +89,7 @@ class Runs:
     async def proposals(self, project_id: str) -> list[dict]:
         rows = await self.db.fetchall(
             "SELECT p.*, s.title, s.position, s.prompt AS current_prompt FROM redo_proposals p JOIN shots s ON s.id = p.shot_id "
-            "WHERE p.project_id = ? ORDER BY p.created_at DESC LIMIT 40", (project_id,))
+            "WHERE p.project_id = ? AND s.deleted_at IS NULL ORDER BY p.created_at DESC LIMIT 40", (project_id,))
         for r in rows:
             r["changes"] = json.loads(r["changes"])
         return rows

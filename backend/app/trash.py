@@ -62,6 +62,8 @@ class Trash:
             raise TrashError("this shot is rendering; cancel the render first")
         await self.db.execute("UPDATE approvals SET status = 'withdrawn', decided_at = ? WHERE shot_id = ? "
                               "AND status = 'pending'", (now(), shot_id))
+        await self.db.execute("UPDATE redo_proposals SET status = 'superseded', decided_at = ? WHERE shot_id = ? "
+                              "AND status = 'pending'", (now(), shot_id))  # a redo of a deleted shot is moot
         await self._mark("shots", shot_id)
         await self.db.audit(actor, "shot.delete", shot_id)
         await self.bus.publish("shot.updated", {"shot_id": shot_id, "deleted": True}, shot["project_id"])
