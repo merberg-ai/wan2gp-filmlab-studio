@@ -178,7 +178,7 @@ export interface ProjectDetail extends Project {
   planning?: { turn_id: string; started_at: string; parts: number; seconds: number; scenes: number } | null;
 }
 /** A shot's pre-render problem, as a render would report it. */
-export interface ShotIssue { level: "block" | "warn"; message: string }
+export interface ShotIssue { level: "block" | "warn"; message: string; kind?: string }
 export type TrashKind = "project" | "shot" | "take" | "asset" | "variant";
 export interface Trash {
   projects: { id: string; title: string; logline: string; deleted_at: string; shots: number }[];
@@ -335,6 +335,8 @@ export const api = {
   testDirector: (model?: string) => request<DirectorTest>("POST", "/api/director/test", model === undefined ? undefined : { model }),
   directorModels: () => request<DirectorModel[]>("GET", "/api/director/models"),
   stopChat: (projectId: string) => request<{ stopped: boolean }>("POST", `/api/projects/${projectId}/chat/stop`),
+  fixPrompts: (pid: string, shotIds?: string[]) =>
+    request<{ turn_id: string; shots: string[] }>("POST", `/api/projects/${pid}/fix-prompts`, { shot_ids: shotIds ?? null }),
   projectChecks: (pid: string) => request<{ shots: Record<string, ShotIssue[]> }>("GET", `/api/projects/${pid}/checks`),
   freshChat: (projectId: string) => request<{ conversation: number }>("POST", `/api/projects/${projectId}/chat/fresh`),
   autonomySettings: () => request<InspectionSettings>("GET", "/api/settings/autonomy"),

@@ -260,7 +260,9 @@ def _mentions(word: str, text: str) -> bool:
     return any(re.search(rf"\b{re.escape(f)}", text) for f in forms)
 
 
-def _setting_issues(prompt: str, setting: str) -> list[dict]:
+def setting_problem(prompt: str, setting: str) -> dict | None:
+    """What the prompt doesn't say of its scene's time and place: {"what": "where"|"when"|"where and when", "missing":
+    [words], "setting": ...}, or None when it says both."""
     text = re.sub(r"[_\-]+", " ", (prompt or "").lower())
     parts = [p for p in re.split(r"[,;]|\s+[-–—]\s+", setting or "") if _words(p)]
     missing_when, place = [], []
@@ -278,11 +280,26 @@ def _setting_issues(prompt: str, setting: str) -> list[dict]:
     missing_where = [] if not place or any(_mentions(w, text) for ws in place for w in ws) else [w for ws in place for w in ws]
     missing = list(dict.fromkeys(missing_when + missing_where))
     if not missing:
-        return []
+        return None
     what = "where and when" if missing_when and missing_where else "when" if missing_when else "where"
-    return [{"level": "warn", "message": f"The prompt doesn't say {what} the scene is ({', '.join(missing)} "
-                                         f"from “{setting.strip()}”). Every shot is generated on its own, so the model "
-                                         "only knows the setting if the prompt states it. ✨ Enhance can rewrite it"}]
+    return {"what": what, "missing": missing, "setting": setting.strip()}
+
+
+def setting_error(problem: dict) -> str:
+    """The director's version: what to put in the prompt."""
+    return (f"the prompt doesn't say {problem['what']} the scene is: state {', '.join(problem['missing'])} (from the "
+            f"scene's time and place “{problem['setting']}”) in the prompt, in your own words. The video model sees only "
+            "this prompt, so a shot without its place and time of day comes out somewhere else")
+
+
+def _setting_issues(prompt: str, setting: str) -> list[dict]:
+    p = setting_problem(prompt, setting)
+    if not p:
+        return []
+    return [{"level": "warn", "kind": "setting", "missing": p["missing"],
+             "message": f"The prompt doesn't say {p['what']} the scene is ({', '.join(p['missing'])} "
+                        f"from “{p['setting']}”). Every shot is generated on its own, so the model "
+                        "only knows the setting if the prompt states it. ✨ Enhance can rewrite it"}]
 
 
 _NO_SPEECH = re.compile(r"\b(no|without|zero)\s+(spoken\s+)?(dialogue|dialog|speech|talking|voices?|words|lines)\b"

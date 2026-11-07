@@ -87,8 +87,10 @@ export function ShotCard({ shot, templates, selected, job, approval, onSelect, a
           {issues.map((i, n) => <p key={n} className={`small ${i.level === "block" ? "error" : "warn"}`}>{i.level === "block" ? "Can't render: " : ""}{i.message}</p>)}
           {editable && (
             <div className="row">
-              <button className="ghost small" title="The director rewrites the prompt from your idea, fixing what's listed"
-                onClick={() => act(() => api.enhanceShot(shot.id))}>✨ Fix with director</button>
+              {issues.some((i) => i.level === "warn") && (
+                <button className="ghost small" title="The director fixes only what's listed and keeps the rest of the prompt"
+                  onClick={() => act(() => api.fixPrompts(shot.project_id, [shot.id]))}>✨ Fix with director</button>
+              )}
               <button className="ghost small" onClick={() => setEditing(true)}>Edit</button>
             </div>
           )}

@@ -442,7 +442,7 @@ def test_plan_with_scene_fields_outside_the_scene_and_a_location_by_name(make_ha
     from tests.test_library import asset
     loc = asset(h, "location", "jim_lab")
     args = plan([{"goal": "Wake the android", "location_asset_id": "Jim lab",
-                  "shots": [shot("Switch", "A scientist flips a switch in a cluttered lab", 5)]}])
+                  "shots": [shot("Switch", "A scientist flips a switch in a cluttered lab in the evening", 5)]}])
     out = run(h, pid, "plan_storyboard", **args, time_place="Evening, Jim's lab")
     assert "error" not in out, out
     scene = h.project(pid)["scenes"][0]
@@ -543,3 +543,32 @@ def test_a_batch_can_wait_for_its_start_time_and_waiting_shots_can_move(make_har
     assert gen and gen[0]["settings"]["prompt"].startswith("Fog")
     bad = h.post(f"/api/projects/{pid}/batches", {"shot_ids": ids, "start_at": "tomorrow"})
     assert bad.status_code in (409, 422)
+
+
+def test_the_director_must_say_where_and_when(make_harness):
+    """A director prompt without its scene's place or time of day is refused with what to add; the owner can ask
+    the director to fix every flagged shot at once."""
+    h = make_harness().login()
+    pid = new_project(h)
+    gym = "Nirvana_Gym, indoor, dim lighting with strong spotlights and haze"
+    out = run(h, pid, "plan_storyboard", scenes=[{"title": "Gig", "time_place": gym, "shots": [
+        shot("Crowd", "A crowd jumps under spotlights", 3)]}])
+    assert "error" in out and "doesn't say where the scene is: state nirvana, gym, indoor" in out["errors"][0]
+    out = run(h, pid, "plan_storyboard", scenes=[{"title": "Gig", "time_place": gym, "shots": [
+        shot("Crowd", "A crowd jumps under spotlights in the Nirvana_Gym", 3)]}])
+    assert "error" not in out, out
+    sid, scene = out["created_shots"][0], h.project(pid)["scenes"][0]["id"]
+    bad = run(h, pid, "update_shot", shot_id=sid, rationale="tighter", prompt="Close-up of a cheering face")
+    assert "doesn't say where" in bad["error"] and "nothing was saved" in bad["error"]
+    assert h.project(pid)["shots"][0]["prompt"] == "A crowd jumps under spotlights in the Nirvana_Gym"
+    assert "error" not in run(h, pid, "update_shot", shot_id=sid, rationale="tighter", prompt="Close-up of a cheering face, inside the gym")
+    assert "error" in run(h, pid, "draft_shot", scene_id=scene, title="Stage", prompt="The band plays loud and fast")
+    # the owner's own edit is still allowed (a warning); then the director is asked to fix it
+    patch(h, f"/api/shots/{sid}", {"prompt": "Close-up of a cheering face, sweat and confetti"})
+    issues = h.c.get(f"/api/projects/{pid}/checks").json()["shots"]
+    assert any(i.get("kind") == "setting" for i in issues.get(sid, [])), issues
+    r = h.post(f"/api/projects/{pid}/fix-prompts", {})
+    assert r.status_code == 202, r.text
+    asked = h.c.get(f"/api/projects/{pid}/chat").json()
+    first = next(m for m in asked if m["role"] == "user" and m["content"].startswith("Fix these shots"))
+    assert f"(shot_id {sid})" in first["content"] and "nirvana, gym, indoor" in first["content"]

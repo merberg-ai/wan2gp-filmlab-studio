@@ -13,6 +13,7 @@ import math
 import re
 
 from . import shots
+from .capabilities import setting_error, setting_problem
 from .sound import clean_sound
 from .db import Database, new_id, now
 from .events import EventBus
@@ -356,6 +357,9 @@ class Storyboard:
                     for issue in await self.caps.checks(tpl, len(refs), shot["prompt"], place, sound_fields=shot["sound"],
                                                         refs=plan_refs, voiced=[]):
                         if issue["level"] == "info":
+                            continue
+                        if issue.get("kind") == "setting":  # a shot without its place and time comes out elsewhere
+                            e.append(setting_error(setting_problem(shot["prompt"], place)))
                             continue
                         # A prompt naming a picture the shot doesn't have is an error in a plan, not a hint.
                         blocking = issue["level"] == "block" or "but the shot has" in issue["message"]

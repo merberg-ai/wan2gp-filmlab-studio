@@ -48,6 +48,8 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
   ], [project]);  // eslint-disable-line react-hooks/exhaustive-deps
   const total = project.shots.reduce((n, s) => n + (s.frames - 1) / 24, 0);
   const issues = useShotIssues(project);
+  const fixable = project.shots.filter((s) => !s.locked && ["draft", "failed", "pending_approval", "ready"].includes(s.status)
+    && issues[s.id]?.some((i) => i.level === "warn")).map((s) => s.id);
   const lastJob = (id: string) => [...project.jobs].reverse().find((j) => j.shot_id === id);
 
   const drop = (e: DragEvent, sceneKey: string, beforeShot?: Shot) => {
@@ -105,6 +107,11 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
           {project.shots.length} shot{project.shots.length === 1 ? "" : "s"}
           {Object.keys(issues).length > 0 && <span className="warn"> · ⚠ {Object.keys(issues).length} with warnings</span>}
         </span>
+        {fixable.length > 0 && (
+          <button className="ghost" disabled={project.director_busy}
+            title="The director fixes only what's flagged in each prompt (a missing place or time of day, a picture it names that the shot doesn't have, …) and keeps the rest; every change shows in the shot's History"
+            onClick={() => act(() => api.fixPrompts(project.id, fixable))}>✨ Fix {fixable.length} with director</button>
+        )}
         {project.shots.length > 0 && (
           <button className={`ghost ${picking ? "on" : ""}`} aria-pressed={picking}
             title="Select shots or whole scenes to render, lock, change or delete them together"

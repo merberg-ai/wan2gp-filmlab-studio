@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from . import auth, shots, sound
 from .capabilities import CapabilityError
+from .director.chat import ChatBusy
 from .db import now
 from .library import MAX_UPLOAD_BYTES, LibraryError
 from .renders import RenderError
@@ -465,8 +466,51 @@ async def project_checks(project_id: str, request: Request):
     project = await s.db.fetchone("SELECT * FROM projects WHERE id = ? AND deleted_at IS NULL", (project_id,))
     if not project:
         raise HTTPException(404, "no such project")
+    return {"shots": await _project_issues(s, project)}
+
+
+class FixPromptsIn(BaseModel):
+    shot_ids: list[str] | None = None  # default: every shot with a warning the prompt can fix
+
+
+@router.post("/api/projects/{project_id}/fix-prompts", status_code=202)
+async def fix_prompts(project_id: str, body: FixPromptsIn, request: Request):
+    """Ask the director to fix the flagged shots' prompts (a missing place or time of day, a picture the prompt names
+    that the shot doesn't have, …), one update_shot each, changing only what's listed. Locked shots are left out."""
+    s = st(request)
+    project = await s.db.fetchone("SELECT * FROM projects WHERE id = ? AND deleted_at IS NULL", (project_id,))
+    if not project:
+        raise HTTPException(404, "no such project")
+    issues = await _project_issues(s, project)
+    rows = await s.db.fetchall("SELECT * FROM shots WHERE project_id = ? AND deleted_at IS NULL ORDER BY position",
+                               (project_id,))
+    todo = [r for r in rows if r["id"] in issues and not r["locked"] and r["status"] in shots.EDITABLE
+            and (body.shot_ids is None or r["id"] in body.shot_ids)
+            and any(i["level"] == "warn" for i in issues[r["id"]])]
+    if not todo:
+        raise HTTPException(409, "no unlocked shot has a warning its prompt can fix")
+    lines = []
+    for r in todo:
+        found = "; ".join(i["message"].replace(" ✨ Enhance can rewrite it", "").rstrip(". ") for i in issues[r["id"]]
+                          if i["level"] == "warn")
+        lines.append(f"- shot {r['position']} “{r['title']}” (shot_id {r['id']}): {found}.")
+    text = ("Fix these shots' prompts. For each one, call update_shot with the fixed prompt and a short rationale. Change "
+            "only what's listed: keep the characters, the action, the camera, the <Picture N> names, the sound and the "
+            "length as they are. Every shot is generated on its own, so its prompt must state its place and time of "
+            "day.\n" + "\n".join(lines))
+    try:
+        turn = await s.chat.send(project_id, text, max_rounds=2 * len(todo) + 3, expect=("update_shot", "the prompt fixes"))
+    except ChatBusy as exc:
+        raise HTTPException(409, str(exc)) from exc
+    await s.db.audit(OWNER, "director.fix_prompts", project_id, {"shots": [r["id"] for r in todo]})
+    return {"turn_id": turn, "shots": [r["id"] for r in todo]}
+
+
+async def _project_issues(s, project: dict) -> dict[str, list[dict]]:
+    """Every shot's warnings and blocks, from the saved capability matrix (never asking WanGP)."""
+    project_id = project["id"]
     if not await s.caps.built_at():
-        return {"shots": {}}
+        return {}
     out = {}
     for shot in await s.db.fetchall("SELECT * FROM shots WHERE project_id = ? AND deleted_at IS NULL", (project_id,)):
         try:
@@ -480,7 +524,7 @@ async def project_checks(project_id: str, request: Request):
         shown = [i for i in issues if i["level"] in ("block", "warn") and "downloaded" not in i["message"]]
         if shown:
             out[shot["id"]] = shown
-    return {"shots": out}
+    return out
 
 
 @router.get("/api/shots/{shot_id}/checks")

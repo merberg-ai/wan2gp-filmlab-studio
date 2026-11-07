@@ -11,6 +11,7 @@ import logging
 import httpx
 
 from .. import library_context, shots
+from ..capabilities import setting_error, setting_problem
 from ..db import new_id, now
 from ..edit import EditError
 from ..library import LibraryError
@@ -408,10 +409,20 @@ class DirectorTools:
         return {"request_id": rid, "status": "pending",
                 "message": "Waiting for the owner to approve in the FilmLab Library. Nothing is generating yet."}
 
+    async def _says_its_setting(self, scene_id: str | None, prompt) -> None:
+        """The director's prompts must state their scene's place and time of day (the video model sees nothing else)."""
+        if not scene_id or not prompt:
+            return
+        row = await self.db.fetchone("SELECT time_place FROM scenes WHERE id = ? AND deleted_at IS NULL", (scene_id,))
+        problem = setting_problem(str(prompt), (row and row["time_place"]) or "")
+        if problem:
+            raise ValueError(setting_error(problem) + "; nothing was saved, call it again with the fixed prompt")
+
     async def draft_shot(self, project_id, template=None, scene_id=None, rationale="", **fields):
         fields.pop("idea", None)  # the idea is the owner's own words
         if scene_id:
             await self.studio.storyboard.scene(scene_id, project_id)
+            await self._says_its_setting(scene_id, fields.get("prompt"))
         tpl, explicit = await self.studio.new_shot_template(project_id, template)
         shot = await shots.create_shot(self.db, self.bus, project_id, fields, tpl, self.ACTOR, explicit,
                                        scene_id=scene_id, rationale=rationale)
@@ -426,6 +437,8 @@ class DirectorTools:
         if not fields and not template:
             raise ValueError("nothing to change: pass the fields to update (e.g. prompt) as top-level arguments")
         tpl = await self.renders.resolve_template(template) if template else None
+        if "prompt" in fields:
+            await self._says_its_setting(shot["scene_id"], fields["prompt"])
         before = await shots.snapshot(self.db, shot_id)
         updated = await shots.update_shot(self.db, self.bus, shot, fields, self.ACTOR, tpl, rationale=rationale)
         if await shots.snapshot(self.db, shot_id) == before:
@@ -510,6 +523,8 @@ class DirectorTools:
         return {k: insp[k] for k in ("status", "verdict", "summary", "technical", "vision", "model", "error")}
 
     async def propose_redo(self, project_id, shot_id, reason, prompt=None, seed=None):
+        if prompt:
+            await self._says_its_setting((await shots.get_shot(self.db, str(shot_id), project_id))["scene_id"], prompt)
         res = await self.studio.runs.propose(project_id, str(shot_id), reason, prompt, seed, self.ACTOR)
         where = ("FilmLab renders it in the owner's redo run, within its limits, and inspects the new take."
                  if res["run_id"] else "Waiting for the owner to accept it in the cockpit. Nothing is rendering.")
