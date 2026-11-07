@@ -739,3 +739,28 @@ table.matrix { display: block; max-width: 100%; overflow-x: auto; }
 .bulk-change input { width: 80px; }
 .scene-head input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
 .toast .primary.small { align-self: center; }
+
+/* stage 2: length meter, plan progress, shot warnings, history takes, asset usage */
+.length-meter { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; margin: 4px 0 8px; }
+.lm-bar { position: relative; display: flex; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: visible; }
+.lm-scene { height: 100%; border-right: 1px solid var(--bg); }
+.lm-scene:first-child { border-radius: 999px 0 0 999px; }
+.lm-scene.c0 { background: rgba(217, 164, 65, 0.75); }
+.lm-scene.c1 { background: rgba(91, 155, 213, 0.75); }
+.lm-scene.c2 { background: rgba(79, 181, 122, 0.75); }
+.lm-scene.c3 { background: rgba(176, 120, 210, 0.75); }
+.lm-target { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--text); border-radius: 1px; }
+.lm-bar.over { box-shadow: 0 0 0 1px rgba(224, 96, 90, 0.6); }
+.card.plan-progress { display: grid; gap: 6px; border-color: rgba(91, 155, 213, 0.4); }
+.card.plan-progress p { margin: 0; }
+.warn-chip { background: rgba(217, 164, 65, 0.16); color: var(--warn); border-color: rgba(217, 164, 65, 0.35); }
+.shot-issues { display: grid; gap: 4px; padding: 6px 8px; border-radius: 8px; background: rgba(217, 164, 65, 0.06); }
+.shot-issues p { margin: 0; }
+.history-filter { gap: 6px; margin: 4px 0; }
+.history-takes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.thumb.mini { position: relative; width: 72px; height: 41px; padding: 0; overflow: hidden; }
+.thumb.mini img { width: 100%; height: 100%; object-fit: cover; }
+.card.asset-usage { display: grid; gap: 8px; }
+.card.asset-usage h2 { margin: 0; font-size: 15px; }
+.usage-list { margin: 2px 0 0; padding-left: 18px; }
+.swap-look { flex-wrap: wrap; gap: 6px; align-items: center; }

@@ -148,9 +148,19 @@ async def bulk_undo(project_id: str, body: UndoIn, request: Request):
 
 @router.get("/api/shots/{shot_id}/revisions")
 async def shot_revisions(shot_id: str, request: Request):
+    """The shot's history, each version with the takes rendered from it (submitted before the next change)."""
     s = st(request)
     await live_shot(s, shot_id)
-    return await shots.revisions(s.db, shot_id)
+    revs = await shots.revisions(s.db, shot_id)
+    takes = await s.db.fetchall(
+        "SELECT t.id, t.media_id, t.thumb_media_id, t.verdict, t.preview, j.submitted_at FROM takes t "
+        "JOIN render_jobs j ON j.id = t.job_id WHERE t.shot_id = ? AND t.deleted_at IS NULL ORDER BY j.submitted_at",
+        (shot_id,))
+    for i, r in enumerate(revs):
+        until = revs[i + 1]["created_at"] if i + 1 < len(revs) else None
+        r["takes"] = [t | {"preview": bool(t["preview"])} for t in takes
+                      if t["submitted_at"] >= r["created_at"] and (until is None or t["submitted_at"] < until)]
+    return revs
 
 
 @router.post("/api/revisions/{revision_id}/restore")
@@ -301,4 +311,5 @@ async def project_extras(s, project_id: str) -> dict:
     for r in reqs:
         r["shot_ids"] = json.loads(r["shot_ids"])
     return {"scenes": await s.storyboard.scenes(project_id), "batch": await s.batches.latest(project_id),
-            "batch_requests": reqs, "render_rates": await s.storyboard.rates()}
+            "batch_requests": reqs, "render_rates": await s.storyboard.rates(),
+            "planning": s.chat.planning.get(project_id)}

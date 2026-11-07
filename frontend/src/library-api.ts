@@ -66,7 +66,14 @@ export interface ShotRef {
   position: number; role: string; variant_id: string; file_id: string; variant_name: string; version: number;
   locked: number; asset_id: string; asset_name: string; kind: AssetKind;
 }
-export interface Usage { shot_id: string; position: number; title: string; status: string; project_id: string; project_title: string }
+export interface Usage {
+  shot_id: string; position: number; title: string; status: string; project_id: string; project_title: string;
+  locked?: number; variant_id?: string; variant_name?: string; version?: number;
+}
+export interface SwapResult {
+  changed: { shot_id: string; project_title: string; position: number; title: string }[];
+  skipped: { shot_id: string; project_title: string; position: number; title: string; reason: string }[];
+}
 
 /** The confirmation text for deleting a library item: which shots lose it, and what restore does. */
 export function usageWarning(what: string, usage: Usage[]): string {
@@ -139,6 +146,8 @@ export const lib = {
   removeEntry: (id: string) => request("DELETE", `/api/library/entries/${id}`),
   assetUsage: (id: string) => request<Usage[]>("GET", `/api/library/assets/${id}/usage`),
   variantUsage: (id: string) => request<Usage[]>("GET", `/api/library/variants/${id}/usage`),
+  swapLook: (assetId: string, toVariantId: string, fromVariantId?: string) => request<SwapResult>("POST",
+    `/api/library/assets/${assetId}/swap-look`, { to_variant_id: toVariantId, from_variant_id: fromVariantId ?? null }),
   deleteAsset: (id: string) => request("DELETE", `/api/library/assets/${id}`),
   deleteVariant: (id: string) => request("DELETE", `/api/library/variants/${id}`),
   fileUrl: (id: string, thumb = false) => `/api/library/files/${id}${thumb ? "?thumb=1" : ""}`,

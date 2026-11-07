@@ -2,7 +2,7 @@
 
 from app.renders import preview_resolution
 from tests.test_api import new_project, new_shot
-from tests.test_storyboard import three_shots, wait_batch
+from tests.test_storyboard import patch, three_shots, wait_batch
 
 
 def test_preview_resolution_halves_each_side_on_a_valid_grid():
@@ -47,3 +47,20 @@ def test_a_preview_batch_renders_every_shot_as_a_preview(make_harness):
     assert len(proj["takes"]) == 3 and all(t["preview"] for t in proj["takes"])
     sizes = {a["settings"]["resolution"] for n, a in h.wangp.calls if n == "wangp_generate"}
     assert sizes == {preview_resolution(s["resolution"]) for s in proj["shots"]}
+
+
+def test_history_lists_the_takes_each_version_rendered(make_harness):
+    h = make_harness().login()
+    pid = new_project(h)
+    shot = new_shot(h, pid)
+    h.post(f"/api/shots/{shot['id']}/approve-and-render", {"preview": True})
+    h.wait_for(lambda: h.project(pid)["shots"][0]["status"] == "ready", what="take 1")
+    patch(h, f"/api/shots/{shot['id']}", {"prompt": "Grey fog over a ruined trench at dawn, wide"})
+    h.post(f"/api/shots/{shot['id']}/approve-and-render")
+    h.wait_for(lambda: len(h.project(pid)["takes"]) == 2 and h.project(pid)["shots"][0]["status"] == "ready", what="take 2")
+    revs = h.c.get(f"/api/shots/{shot['id']}/revisions").json()
+    takes = [t["id"] for t in h.project(pid)["takes"]]
+    assert [[t["id"] for t in r["takes"]] for r in revs] == [[takes[0]], [takes[1]]]
+    assert revs[0]["takes"][0]["preview"] is True and revs[1]["takes"][0]["preview"] is False
+    checks = h.c.get(f"/api/projects/{pid}/checks").json()["shots"]
+    assert isinstance(checks, dict)

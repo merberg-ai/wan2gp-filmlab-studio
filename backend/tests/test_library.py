@@ -435,3 +435,26 @@ def test_enhance_brief_carries_scene_and_rules():
     b = enhance_brief(shot, [], [], scene, "Anthony walks home on a dark rainy night.")
     assert "Night, Suburban Street" in b and "mood: Oppressive" in b and "dark rainy night" in b
     assert SETTING_RULE in b and SOUND_RULE in b
+
+
+def test_usage_lists_the_shots_and_a_look_swaps_everywhere(make_harness, images):
+    h = make_harness().login()
+    hale, trench, hv, tv = refs_setup(h, images)
+    pid = new_project(h)
+    a, b, c = (new_shot(h, pid, title=t) for t in ("one", "two", "three"))
+    for shot in (a, b, c):
+        set_refs(h, shot["id"], hv, tv)
+    h.post(f"/api/shots/{c['id']}/lock", {"locked": True})
+    v2 = h.post(f"/api/library/variants/{hv}/new-version").json()
+    upload(h, v2["id"], images[2], caption="winter coat")
+    usage = h.c.get(f"/api/library/assets/{hale['id']}/usage").json()
+    assert [u["title"] for u in usage] == ["one", "two", "three"] and usage[0]["variant_id"] == hv
+    out = h.post(f"/api/library/assets/{hale['id']}/swap-look", {"to_variant_id": v2["id"]}).json()
+    assert [x["title"] for x in out["changed"]] == ["one", "two"] and out["skipped"][0]["reason"] == "it's locked"
+    refs = h.c.get(f"/api/shots/{a['id']}/refs").json()
+    assert [r["variant_id"] for r in refs] == [v2["id"], tv]  # same place, the trench untouched
+    assert h.c.get(f"/api/shots/{c['id']}/refs").json()[0]["variant_id"] == hv
+    revs = h.c.get(f"/api/shots/{a['id']}/revisions").json()
+    assert "Corporal Hale" in revs[-1]["rationale"] and "refs" in revs[-1]["changed"]
+    bad = h.post(f"/api/library/assets/{hale['id']}/swap-look", {"to_variant_id": tv})
+    assert bad.status_code == 422

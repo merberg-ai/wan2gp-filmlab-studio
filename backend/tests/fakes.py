@@ -4,6 +4,7 @@ They speak the same wire formats the real services returned in the F0/F1b
 spikes, so tests exercise the real clients, parsers and state machines.
 """
 
+import asyncio
 import json
 import re
 import subprocess
@@ -323,6 +324,7 @@ class FakeGateway:
         self.empty = False  # fail like OpenClaw does when the model's reply comes back empty: always, or N times
         self.more_parts = 0  # plan in parts: after the first part, this many more (each tries replace_drafts)
         self.empty_next_part = 0  # this many "Part N is saved" requests come back empty (the live failure)
+        self.hang_next_part = False  # "Part N is saved" never answers (a slow model), until the turn is stopped
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -364,6 +366,11 @@ class FakeGateway:
         if body["_model_header"] == "ollama/broken:cloud":
             return httpx.Response(404, json={"error": {"message": "model not found"}})
         asks_next = re.match(r"part \d+ is saved", body["messages"][0]["content"].lower())
+        if asks_next and self.hang_next_part:
+            async def hang():
+                await asyncio.sleep(60)
+                return self._sse(text="too late")
+            return hang()
         if self.empty or (self.empty_next_part and asks_next):
             if asks_next and self.empty_next_part:
                 self.empty_next_part -= 1

@@ -1,6 +1,6 @@
 import { type DragEvent, type FormEvent, useEffect, useMemo, useState } from "react";
 import { ask } from "./Dialog";
-import { api, type Batch, type BatchReview, type PlanIssue, type ProjectDetail, type Scene, type Shot, type Template, seconds } from "./api";
+import { api, type Batch, type BatchReview, type PlanIssue, type ProjectDetail, type Scene, type Shot, type ShotIssue, type Template, seconds } from "./api";
 import { lib } from "./library-api";
 import { ACTIVE_JOB, PREVIEW_HINT, ShotCard, ShotEditor } from "./Shots";
 import { RedoPanel } from "./Autonomy";
@@ -45,6 +45,7 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
     { key: UNSORTED, scene: null, shots: project.shots.filter((s) => !s.scene_id || !sceneIds.has(s.scene_id)) },
   ], [project]);  // eslint-disable-line react-hooks/exhaustive-deps
   const total = project.shots.reduce((n, s) => n + (s.frames - 1) / 24, 0);
+  const issues = useShotIssues(project);
   const lastJob = (id: string) => [...project.jobs].reverse().find((j) => j.shot_id === id);
 
   const drop = (e: DragEvent, sceneKey: string, beforeShot?: Shot) => {
@@ -63,7 +64,8 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
     const busy = !!(job && ACTIVE_JOB.has(job.status));
     const movable = !busy && !picking;
     return (
-      <ShotCard key={s.id} shot={s} templates={templates} selected={s.id === selected} job={job}
+      <ShotCard key={s.id} shot={s} templates={templates} selected={s.id === selected} job={job} issues={issues[s.id]}
+        takes={project.takes.filter((t) => t.shot_id === s.id)}
         approval={project.approvals.find((a) => a.shot_id === s.id)}
         onSelect={() => onSelect(s.id === selected ? null : s.id)} act={act}
         pick={picking ? { on: picked.has(s.id), toggle: () => togglePick(s.id) } : undefined}
@@ -98,8 +100,8 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
       <div className="panel-head">
         <h2>Storyboard</h2>
         <span className="muted small grow">
-          {project.shots.length} shot{project.shots.length === 1 ? "" : "s"} · {total.toFixed(1)} s
-          {project.target_seconds ? ` of ${project.target_seconds} s target` : ""}
+          {project.shots.length} shot{project.shots.length === 1 ? "" : "s"}
+          {Object.keys(issues).length > 0 && <span className="warn"> · ⚠ {Object.keys(issues).length} with warnings</span>}
         </span>
         {project.shots.length > 0 && (
           <button className={`ghost ${picking ? "on" : ""}`} aria-pressed={picking}
@@ -110,6 +112,9 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
         <button className="primary" disabled={!project.shots.length || !!(project.batch && ["running", "paused"].includes(project.batch.status))}
           onClick={() => setReview({})}>Render storyboard…</button>
       </div>
+      <LengthMeter total={total} target={project.target_seconds} scenes={groups.filter((g) => g.shots.length).map((g) => ({
+        key: g.key, title: g.scene?.title ?? "Unsorted", seconds: g.shots.reduce((n, s) => n + (s.frames - 1) / 24, 0) }))} />
+      {project.director_busy && project.planning && <PlanProgress project={project} act={act} />}
       <FilmStrip project={project} selected={selected} onSelect={onSelect} act={act} />
       <BriefPanel project={project} act={act} />
       {project.batch_requests.map((r) => (
@@ -132,7 +137,7 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
         <div key={g.key} className={`scene ${dragging ? "drop-target" : ""}`}
           onDragOver={(e) => { if (dragging) e.preventDefault(); }} onDrop={(e) => drop(e, g.key)}>
           {g.scene ? <SceneHeader scene={g.scene} index={project.scenes.indexOf(g.scene)} count={project.scenes.length}
-            shots={g.shots} act={act} onAdd={() => setAdding(g.key)}
+            shots={g.shots} act={act} onAdd={() => setAdding(g.key)} filmSeconds={total} target={project.target_seconds}
             pick={picking ? { on: pickedScenes.has(g.scene.id), toggle: () => toggleScene(g.scene!) } : undefined} />
             : project.scenes.length > 0 && <div className="scene-head"><h3 className="muted">Unsorted</h3>
               <button className="ghost small" onClick={() => setAdding(UNSORTED)}>+ Shot</button></div>}
@@ -160,9 +165,9 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
   );
 }
 
-function SceneHeader({ scene, index, count, shots, act, onAdd, pick }: {
+function SceneHeader({ scene, index, count, shots, act, onAdd, pick, filmSeconds, target }: {
   scene: Scene; index: number; count: number; shots: Shot[]; act: Act; onAdd: () => void;
-  pick?: { on: boolean; toggle: () => void };
+  pick?: { on: boolean; toggle: () => void }; filmSeconds: number; target: number | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState({ title: scene.title, goal: scene.goal, time_place: scene.time_place, mood: scene.mood });
@@ -189,7 +194,8 @@ function SceneHeader({ scene, index, count, shots, act, onAdd, pick }: {
         title="The whole scene: deleting it removes the scene too" />}
       <h3>{scene.title}</h3>
       <span className="muted small grow">{[scene.time_place, scene.mood].filter(Boolean).join(" · ")}
-        {shots.length ? ` · ${shots.length} shot${shots.length === 1 ? "" : "s"}, ${secs.toFixed(1)} s` : " · empty"}</span>
+        {shots.length ? ` · ${shots.length} shot${shots.length === 1 ? "" : "s"}, ${secs.toFixed(1)} s` : " · empty"}
+        {shots.length > 0 && (target || filmSeconds) ? ` (${Math.round(100 * secs / (target || filmSeconds))}% of the ${target ? "target" : "film"})` : ""}</span>
       <button className="ghost small" disabled={index === 0} aria-label="Move scene up" onClick={() => act(() => api.moveScene(scene.id, index - 1))}>↑</button>
       <button className="ghost small" disabled={index === count - 1} aria-label="Move scene down" onClick={() => act(() => api.moveScene(scene.id, index + 1))}>↓</button>
       <button className="ghost small" onClick={() => setEditing(true)}>Edit</button>
@@ -269,6 +275,67 @@ function BriefPanel({ project, act }: { project: ProjectDetail; act: Act }) {
         step in the chat and every change in a shot's History. Nothing renders until you start it.</p>
     </details>
   );
+}
+
+/** The film's length against the target, with each scene's share; over the target shows as a warning. */
+function LengthMeter({ total, target, scenes }: {
+  total: number; target: number | null; scenes: { key: string; title: string; seconds: number }[];
+}) {
+  if (!total && !target) return null;
+  const scale = Math.max(total, target ?? 0) || 1;
+  const over = !!target && total > target * 1.1;
+  const under = !!target && total < target * 0.9;
+  return (
+    <div className="length-meter" title="The film's length, scene by scene, against the target">
+      <div className={`lm-bar ${over ? "over" : ""}`} role="img"
+        aria-label={`${total.toFixed(1)} seconds${target ? ` of a ${target} second target` : ""}`}>
+        {scenes.map((s, i) => (
+          <span key={s.key} className={`lm-scene c${i % 4}`} style={{ width: `${(100 * s.seconds) / scale}%` }}
+            title={`${s.title}: ${s.seconds.toFixed(1)} s`} />
+        ))}
+        {target ? <span className="lm-target" style={{ left: `${Math.min(100, (100 * target) / scale)}%` }} /> : null}
+      </div>
+      <span className={`small ${over ? "warn" : "muted"}`}>
+        {total.toFixed(1)} s{target ? ` of ${target} s` : ""}
+        {over ? ` · ${(total - target!).toFixed(0)} s over` : under ? ` · ${(target! - total).toFixed(0)} s to go` : target ? " · on target" : ""}
+      </span>
+    </div>
+  );
+}
+
+/** While the director writes a plan in parts: how far it got, and Stop (what's saved stays). */
+function PlanProgress({ project, act }: { project: ProjectDetail; act: Act }) {
+  const p = project.planning!;
+  const now = useNow(1000);
+  const target = project.target_seconds || 0;
+  const ran = Math.max(0, (now - Date.parse(p.started_at)) / 1000);
+  return (
+    <div className="card plan-progress" role="status">
+      <div className="row">
+        <strong className="grow">Planning with the director
+          <span className="muted small"> · {p.parts ? `part ${p.parts} saved, writing the next` : "writing the first part"}
+            {` · ${duration(ran)}`}</span></strong>
+        <button className="ghost small danger-text" title="Stop now: the parts already saved stay, and Plan more carries on from them"
+          onClick={() => act(() => api.stopChat(project.id))}>Stop</button>
+      </div>
+      {target ? <progress max={target} value={Math.min(p.seconds, target)} aria-label="seconds planned" /> : <progress />}
+      <p className="small muted">{p.seconds.toFixed(0)} s planned{target ? ` of ${target} s` : ""} in {p.scenes} scene{p.scenes === 1 ? "" : "s"};
+        new scenes appear below as each part is saved.</p>
+    </div>
+  );
+}
+
+/** Every shot's pre-render warnings (backend /checks), refreshed when shots change. */
+function useShotIssues(project: ProjectDetail) {
+  const [issues, setIssues] = useState<Record<string, ShotIssue[]>>({});
+  const key = project.shots.map((s) => `${s.id}:${s.updated_at}`).join(",") + project.scenes.map((s) => s.time_place).join("|");
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      api.projectChecks(project.id).then((r) => setIssues(r.shots)).catch(() => undefined);
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [project.id, key]);
+  return issues;
 }
 
 const KEEP = "";

@@ -145,6 +145,61 @@ async def asset_usage(asset_id: str, request: Request):
     return await st(request).trash.usage(asset_id=asset_id)
 
 
+class SwapLookIn(BaseModel):
+    to_variant_id: str
+    from_variant_id: str | None = None  # only the shots using this look (default: every look of the asset)
+
+
+@router.post("/api/library/assets/{asset_id}/swap-look")
+async def swap_look(asset_id: str, body: SwapLookIn, request: Request):
+    """Point every shot that uses the asset at another of its looks, keeping each reference's place (and the image
+    at the same position in the new look, else its first). Locked shots and shots that are rendering are skipped."""
+    s = st(request)
+    try:
+        asset = await s.library.asset(asset_id)
+    except LibraryError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    variants = {v["id"]: v for v in asset["variants"]}
+    target = variants.get(body.to_variant_id)
+    if not target:
+        raise HTTPException(422, "that look isn't part of this asset")
+    images = {vid: [f["file_id"] for f in v["files"] if f["kind"] == "image"] for vid, v in variants.items()}
+    if not images[target["id"]]:
+        raise HTTPException(422, f"the look “{target['name']}” v{target['version']} has no images")
+    changed, skipped = [], []
+    for u in await s.trash.usage(asset_id=asset_id):
+        if body.from_variant_id and u["variant_id"] != body.from_variant_id:
+            continue
+        shot = await shots.get_shot(s.db, u["shot_id"])
+        where = {"shot_id": shot["id"], "project_title": u["project_title"], "position": shot["position"],
+                 "title": shot["title"]}
+        if shot["locked"] or shot["status"] not in shots.REFS_EDITABLE:
+            skipped.append(where | {"reason": "it's locked" if shot["locked"] else f"it's {shot['status']}"})
+            continue
+        refs, moved = [], False
+        for r in await s.library.shot_refs(shot["id"]):
+            if r["asset_id"] == asset_id and r["variant_id"] != target["id"] and \
+                    (not body.from_variant_id or r["variant_id"] == body.from_variant_id):
+                old = images.get(r["variant_id"], [])
+                idx = old.index(r["file_id"]) if r["file_id"] in old else 0
+                new = images[target["id"]]
+                refs.append({"variant_id": target["id"], "file_id": new[min(idx, len(new) - 1)], "role": r["role"]})
+                moved = True
+            else:
+                refs.append({"variant_id": r["variant_id"], "file_id": r["file_id"], "role": r["role"]})
+        if not moved:
+            continue
+        try:
+            await s.library.set_shot_refs(shot, refs, OWNER,
+                                          rationale=f"{asset['name']}: look “{target['name']}” v{target['version']}")
+            await shots.refs_changed(s.db, s.bus, shot, OWNER)
+            changed.append(where)
+        except (LibraryError, shots.ShotError) as exc:
+            skipped.append(where | {"reason": str(exc)})
+    await s.db.audit(OWNER, "library.swap_look", asset_id, {"to": target["id"], "shots": [c["shot_id"] for c in changed]})
+    return {"changed": changed, "skipped": skipped}
+
+
 @router.get("/api/library/variants/{variant_id}/usage")
 async def variant_usage(variant_id: str, request: Request):
     return await st(request).trash.usage(variant_id=variant_id)
@@ -399,6 +454,33 @@ async def set_refs(shot_id: str, body: RefsIn, request: Request):
     except (LibraryError, shots.ShotError) as exc:
         raise bad(exc) from exc
     return refs
+
+
+@router.get("/api/projects/{project_id}/checks")
+async def project_checks(project_id: str, request: Request):
+    """Every shot's pre-render problems (the same checks as a render), for the warnings on the shot cards. Only
+    from what FilmLab already knows (the saved capability matrix): it never asks WanGP, and a check that can't run
+    just leaves that shot out."""
+    s = st(request)
+    project = await s.db.fetchone("SELECT * FROM projects WHERE id = ? AND deleted_at IS NULL", (project_id,))
+    if not project:
+        raise HTTPException(404, "no such project")
+    if not await s.caps.built_at():
+        return {"shots": {}}
+    out = {}
+    for shot in await s.db.fetchall("SELECT * FROM shots WHERE project_id = ? AND deleted_at IS NULL", (project_id,)):
+        try:
+            refs = await s.library.shot_refs(shot["id"])
+            template = await s.caps.effective_template(shot, project, len(refs))
+            snd = sound.load(shot["sound"])
+            issues = await s.caps.checks(template, len(refs), shot["prompt"], await s.caps.setting_for(shot),
+                                         sound_fields=snd, refs=refs, voiced=await s.refs.voiced(snd, refs))
+        except Exception:  # noqa: BLE001 - one shot's check never hides the others'
+            continue
+        shown = [i for i in issues if i["level"] in ("block", "warn") and "downloaded" not in i["message"]]
+        if shown:
+            out[shot["id"]] = shown
+    return {"shots": out}
 
 
 @router.get("/api/shots/{shot_id}/checks")

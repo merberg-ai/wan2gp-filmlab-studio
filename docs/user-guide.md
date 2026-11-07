@@ -57,6 +57,8 @@ The Library holds everything your films reuse: **characters, locations, props, s
 
 Use the names you give assets in your briefs (e.g. `Anthony_science`, `Jim_lab`). The director matches them.
 
+- An asset's page lists every shot that **uses it** (by project and look); click one to open it. With more than one look, **Use one look everywhere** puts the chosen look in all those shots, in the same place (locked and rendering shots are skipped, and each change shows in the shot's History).
+
 ## The Creator
 
 **Library → ✨ Create with the director…** makes a whole new asset from a description.
@@ -78,6 +80,7 @@ Open a project's **Brief** (top of the storyboard), write what the film is about
 
 - Mention your Library assets **by name**, the setting, the style, and anything that must happen. Give the **target length**.
 - The director plans **scene by scene**: each scene's goal, time and place and mood, and its shots, each with a prompt, references, length, transition, **sound** and a reason. You can watch every step in the **Director** panel.
+- While it plans, the storyboard shows **how far it got**: the parts saved and the seconds planned against the target, with new scenes appearing as each part is saved. **Stop** ends it there (also in the Director panel, for any reply): the saved scenes stay, and **Plan more** carries on from them.
 - **Re-plan drafts** replaces draft shots that have no takes. Locked, approved and rendered shots always stay. **Plan more** adds after the current shots.
 - **Before you plan**, the Brief checks your brief against the project's settings and offers a one-click fix:
   - the brief asks for a different length than the **target** (the director plans to the target);
@@ -94,7 +97,9 @@ Open a project's **Brief** (top of the storyboard), write what the film is about
 ## The storyboard
 
 - The **film strip** at the top shows every shot as a frame sized by its length, grouped by scene, with the take the edit uses. Click a frame to open the shot; drag to reorder. A coloured bar shows each shot's state, and the running total is compared with your target length.
+- Under it, the **length meter** shows the film scene by scene against the target length (the line), and says how far over or short it is. Each scene's header gives its share of the target.
 - Below it are the **scenes** (edit their goal, time and place and mood; reorder or delete them) and their **shot cards**.
+- A shot with a problem a render would report (a picture the prompt names but the shot doesn't have, a setting the prompt doesn't state, speech that isn't set, …) shows **⚠** with the count. Open the shot to read them and press **✨ Fix with director** or **Edit**.
 - **Select** lets you tick shots, or a whole scene, and then **Render…**, **Lock**, **Unlock**, **Change…** (model, size or length) or **Delete** them together. *Unlocked drafts* selects what a re-plan would replace. Locked, approved and rendering shots are skipped, with the reason.
 - Deleting a shot or a scene shows **Undo** for a few seconds; the shots are also in **Recently deleted** afterwards.
 - **Render storyboard…** reviews every shot with WanGP first (what will render, what can't and why, how long it should take) and then renders your selection as a **batch**, one shot at a time, in order. Pause, resume or cancel it from the batch bar, and retry failed shots. Tick **Preview first** for a preview batch (see [Rendering](#rendering)).
@@ -108,7 +113,7 @@ A shot card shows its prompt, its **sound** summary, its references, and the dir
 | **Edit** | Title, your idea, the picture prompt, **Sound**, length, size, transition into the next shot, model, preset |
 | **✨ Enhance** | The director picks references (if there are none) and rewrites the prompt from your idea, naming each reference as `<Picture N>` |
 | **Validate** | Asks WanGP whether it can render the shot, and at what size and length |
-| **History** | Every change to the shot: who made it, when and why |
+| **History** | Every change to the shot: who made it, when and why, the **takes rendered from each version** (click one to open it) and **Restore this version**. *Only prompt changes…* hides the rest |
 | **Lock** | The director can't change it and batches don't re-render it |
 | **Preview** | A quick take at half the width and height (see [Rendering](#rendering)) |
 | **Approve & render** / **Render new take** | Queues it in WanGP at full quality |

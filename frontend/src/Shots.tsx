@@ -2,7 +2,8 @@ import { TransitionSelect } from "./TransitionSelect";
 import { SoundEditor, soundSummary } from "./SoundEditor";
 import { type FormEvent, type HTMLAttributes, type ReactNode, useEffect, useState } from "react";
 import { ask, askText } from "./Dialog";
-import { api, type Job, type Revision, type Shot, type Template, type Validation, seconds, type ShotSound, transitionLabel } from "./api";
+import { api, type Job, type Revision, type Shot, type ShotIssue, type Take, type Template, type Validation, seconds, type ShotSound, transitionLabel } from "./api";
+import { goShot } from "./Palette";
 import { ImagePicker, type Pick } from "./ImagePicker";
 import { SIZES } from "./ProjectSettings";
 import { lib, type Preset } from "./library-api";
@@ -19,12 +20,15 @@ export const ACTIVE_JOB = new Set(["submitting", "queued", "running", "cancellin
 export const PREVIEW_HINT = "A quick take at half the width and height (several times faster) with the same prompt, references, "
   + "sound and seed: judge timing and framing first, then render full quality.";
 
-export function ShotCard({ shot, templates, selected, job, approval, onSelect, act, controls, drag, pick }: {
+export function ShotCard({ shot, templates, selected, job, approval, onSelect, act, controls, drag, pick, issues, takes }: {
   shot: Shot; templates: Template[]; selected: boolean; job?: Job; approval?: { note: string; requested_by: string };
   onSelect: () => void; act: (fn: () => Promise<unknown>) => Promise<void>;
   controls?: ReactNode; drag?: HTMLAttributes<HTMLLIElement>;
   /** Selecting shots for a bulk action (the storyboard's Select mode). */
   pick?: { on: boolean; toggle: () => void };
+  /** Pre-render warnings (the storyboard's /checks). */
+  issues?: ShotIssue[];
+  takes?: Take[];
 }) {
   const [editing, setEditing] = useState(false);
   const [history, setHistory] = useState(false);
@@ -53,6 +57,8 @@ export function ShotCard({ shot, templates, selected, job, approval, onSelect, a
         <span className="pos">{shot.position}</span>
         <strong>{shot.title}</strong>
         {locked && <span title="Locked: the director can't change it and batches don't re-render it">🔒</span>}
+        {issues && issues.length > 0 && <span className={`chip ${issues.some((i) => i.level === "block") ? "s-failed" : "warn-chip"}`}
+          title={issues.map((i) => i.message).join("\n")}>⚠ {issues.length}</span>}
         <span className={`chip s-${shot.status}`}>{STATUS_LABEL[shot.status] ?? shot.status}</span>
       </button>
       </div>
@@ -75,6 +81,18 @@ export function ShotCard({ shot, templates, selected, job, approval, onSelect, a
             {soundSummary(shot.sound) ?? "Sound not set: the model may invent speech"}</p>
           {shot.rationale && <p className="small muted rationale" title="The director's latest reason">Director: {shot.rationale}</p>}
         </>
+      )}
+      {issues && issues.length > 0 && !editing && (selected || issues.some((i) => i.level === "block")) && (
+        <div className="shot-issues" role="group" aria-label="Warnings">
+          {issues.map((i, n) => <p key={n} className={`small ${i.level === "block" ? "error" : "warn"}`}>{i.level === "block" ? "Can't render: " : ""}{i.message}</p>)}
+          {editable && (
+            <div className="row">
+              <button className="ghost small" title="The director rewrites the prompt from your idea, fixing what's listed"
+                onClick={() => act(() => api.enhanceShot(shot.id))}>✨ Fix with director</button>
+              <button className="ghost small" onClick={() => setEditing(true)}>Edit</button>
+            </div>
+          )}
+        </div>
       )}
       <ShotReferences shot={shot} active={!!(job && ACTIVE_JOB.has(job.status))} selected={selected} act={act} />
       {check && (
@@ -116,7 +134,7 @@ export function ShotCard({ shot, templates, selected, job, approval, onSelect, a
           </button>
         )}
       </div>
-      {history && <ShotHistory shot={shot} act={act} />}
+      {history && <ShotHistory shot={shot} act={act} takes={takes ?? []} />}
     </li>
   );
 }
@@ -289,16 +307,23 @@ const FIELD: Record<string, string> = {
 };
 
 /** Every change to what the shot renders: who, what, why; restore any version. */
-function ShotHistory({ shot, act }: { shot: Shot; act: (fn: () => Promise<unknown>) => Promise<void> }) {
+function ShotHistory({ shot, act, takes }: { shot: Shot; act: (fn: () => Promise<unknown>) => Promise<void>; takes: Take[] }) {
   const [revs, setRevs] = useState<Revision[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  useEffect(() => { api.revisions(shot.id).then(setRevs).catch(() => setRevs([])); }, [shot.id, shot.updated_at]);
+  const [promptsOnly, setPromptsOnly] = useState(false);
+  useEffect(() => { api.revisions(shot.id).then(setRevs).catch(() => setRevs([])); }, [shot.id, shot.updated_at, takes.length]);
   if (!revs) return <p className="small muted">Loading history…</p>;
   if (!revs.length) return <p className="small muted">No recorded changes yet (shots from before F4 start their history at the next change).</p>;
   const latest = revs[revs.length - 1].id;
+  const shown = promptsOnly ? revs.filter((r) => r.kind === "create" || r.kind === "plan" || r.changed.includes("prompt") || r.takes?.length) : revs;
   return (
+    <>
+    <label className="row small muted history-filter">
+      <input type="checkbox" checked={promptsOnly} onChange={(e) => setPromptsOnly(e.target.checked)} />
+      Only prompt changes and versions that were rendered
+    </label>
     <ol className="history small">
-      {[...revs].reverse().map((r) => (
+      {[...shown].reverse().map((r) => (
         <li key={r.id}>
           <div className="row">
             <span className="grow"><strong>{ACTOR[r.actor] ?? r.actor}</strong> {KIND[r.kind] ?? r.kind}
@@ -313,6 +338,19 @@ function ShotHistory({ shot, act }: { shot: Shot; act: (fn: () => Promise<unknow
             )}
           </div>
           {r.rationale && <p className="muted">“{r.rationale}”</p>}
+          {r.takes && r.takes.length > 0 && (
+            <div className="history-takes">
+              <span className="muted">Rendered from this version:</span>
+              {r.takes.map((t) => (
+                <button key={t.id} className={`thumb mini v-${t.verdict ?? "none"}`} title={`Open this take${t.verdict ? ` (${t.verdict})` : ""}${t.preview ? " · preview" : ""}`}
+                  onClick={() => goShot(shot.project_id, shot.id, t.id)}>
+                  {t.thumb_media_id ? <img src={api.mediaUrl(t.thumb_media_id)} alt="take" loading="lazy" /> : "take"}
+                  {t.verdict && <span className="verdict-dot" aria-label={t.verdict} />}
+                  {t.preview && <span className="preview-mark">P</span>}
+                </button>
+              ))}
+            </div>
+          )}
           {open === r.id && (
             <dl className="diff">
               {(r.kind === "create" || r.kind === "plan" ? ["prompt", "frames", "template", "refs"] : r.changed).map((k) => (
@@ -327,6 +365,7 @@ function ShotHistory({ shot, act }: { shot: Shot; act: (fn: () => Promise<unknow
         </li>
       ))}
     </ol>
+    </>
   );
 }
 

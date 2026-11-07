@@ -11,11 +11,11 @@ type Route = { page: string; id?: string | null };
 
 /** Open a shot in the project view (ProjectView listens), after switching to its project if needed. */
 export const SELECT_SHOT = "filmlab:select-shot";
-function goShot(projectId: string, shotId: string) {
+export function goShot(projectId: string, shotId: string, takeId?: string) {
   const target = `#/p/${projectId}`;
   if (location.hash !== target) location.hash = target;
   // the project view may still be mounting: ask twice, it ignores repeats
-  const send = () => window.dispatchEvent(new CustomEvent(SELECT_SHOT, { detail: { projectId, shotId } }));
+  const send = () => window.dispatchEvent(new CustomEvent(SELECT_SHOT, { detail: { projectId, shotId, takeId } }));
   window.setTimeout(send, 50); window.setTimeout(send, 600);
 }
 

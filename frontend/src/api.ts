@@ -76,6 +76,8 @@ export interface BatchRequest { id: string; shot_ids: string[]; note: string; cr
 export interface Revision {
   id: string; shot_id: string; actor: string; kind: string; rationale: string; created_at: string;
   before: Record<string, unknown>; after: Record<string, unknown>; changed: string[];
+  /** The takes rendered from this version (submitted before the next change). */
+  takes?: { id: string; media_id: string; thumb_media_id: string | null; verdict: string | null; preview: boolean }[];
 }
 export interface ReviewRow {
   shot_id: string; position: number; title: string; status: string; locked: boolean; takes: number; template: string;
@@ -170,7 +172,11 @@ export interface ProjectDetail extends Project {
   autonomy: "A0" | "A1" | "A2" | "A3"; inspections: Record<string, Inspection>; redo: RedoState;
   template: string | null; style: string;
   shots: Shot[]; jobs: Job[]; takes: Take[]; approvals: Approval[]; director_busy: boolean; last_event_id: number;
+  /** A plan in parts being written right now: parts saved so far and the seconds of film they add up to. */
+  planning?: { turn_id: string; started_at: string; parts: number; seconds: number; scenes: number } | null;
 }
+/** A shot's pre-render problem, as a render would report it. */
+export interface ShotIssue { level: "block" | "warn"; message: string }
 export type TrashKind = "project" | "shot" | "take" | "asset" | "variant";
 export interface Trash {
   projects: { id: string; title: string; logline: string; deleted_at: string; shots: number }[];
@@ -324,6 +330,8 @@ export const api = {
   putDirectorSettings: (p: Partial<DirectorSettings>) => request<DirectorSettings>("PUT", "/api/director/settings", p),
   testDirector: (model?: string) => request<DirectorTest>("POST", "/api/director/test", model === undefined ? undefined : { model }),
   directorModels: () => request<DirectorModel[]>("GET", "/api/director/models"),
+  stopChat: (projectId: string) => request<{ stopped: boolean }>("POST", `/api/projects/${projectId}/chat/stop`),
+  projectChecks: (pid: string) => request<{ shots: Record<string, ShotIssue[]> }>("GET", `/api/projects/${pid}/checks`),
   freshChat: (projectId: string) => request<{ conversation: number }>("POST", `/api/projects/${projectId}/chat/fresh`),
   autonomySettings: () => request<InspectionSettings>("GET", "/api/settings/autonomy"),
   putAutonomySettings: (s: Partial<Pick<InspectionSettings, "auto_inspect" | "vision_model" | "vision">>) =>

@@ -49,6 +49,9 @@ class DirectorChat:
         self.settings = settings  # DirectorSettings: the owner's notes, reply style, rounds, fresh conversations
         self._active: set[str] = set()
         self._tasks: set[asyncio.Task] = set()
+        self._task_of: dict[str, asyncio.Task] = {}  # the project's running turn, for Stop
+        self._stopping: set[str] = set()  # turns the owner stopped (a cancel otherwise means shutdown)
+        self.planning: dict[str, dict] = {}  # a plan in parts being written: parts saved, seconds planned
 
     def busy(self, project_id: str) -> bool:
         return project_id in self._active
@@ -72,12 +75,56 @@ class DirectorChat:
         except Exception:
             self._active.discard(project_id)
             raise
-        task = asyncio.create_task(self._turn(project_id, turn_id, text, max_rounds, expect, parts, resume))
+        if parts:
+            self.planning[project_id] = {"turn_id": turn_id, "started_at": now(), "parts": 0, "seconds": 0.0,
+                                         "scenes": 0}
+        task = asyncio.create_task(self._run(project_id, turn_id, text, max_rounds, expect, parts, resume))
         self._tasks.add(task)
+        self._task_of[project_id] = task
         task.add_done_callback(self._tasks.discard)
-        task.add_done_callback(lambda _: self._active.discard(project_id))
-        task.add_done_callback(lambda _: self.tools.plan_parts.pop(project_id, None))
         return turn_id
+
+    async def _run(self, project_id: str, turn_id: str, *args):
+        try:
+            await self._turn(project_id, turn_id, *args)
+        except asyncio.CancelledError:
+            if project_id not in self._stopping:
+                raise  # the backend is shutting down
+            saved = self.tools.plan_parts.get(project_id, 0)
+            msg = ("Stopped by you" + (f" after {saved} part(s) of the plan; those scenes are saved. Plan more "
+                                       "carries on from them." if saved else ". Anything the director saved before stays."))
+            await self._save(project_id, "note", msg)
+            await self.bus.publish("chat.message", {"turn_id": turn_id, "role": "note", "content": msg}, project_id)
+            await self.db.audit("owner", "director.stop", project_id, {"parts_saved": saved})
+        finally:
+            self._stopping.discard(project_id)
+            self._active.discard(project_id)
+            self._task_of.pop(project_id, None)
+            self.tools.plan_parts.pop(project_id, None)
+            self.planning.pop(project_id, None)
+            await self.bus.publish("chat.done", {"turn_id": turn_id}, project_id)
+
+    async def stop(self, project_id: str) -> bool:
+        """Stop the project's director turn now. What it already saved stays; False if nothing was running."""
+        task = self._task_of.get(project_id)
+        if not task or task.done():
+            return False
+        self._stopping.add(project_id)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        return True
+
+    async def _progress(self, project_id: str):
+        """After a part of a plan was saved: how far it got, for the cockpit's progress bar."""
+        state = self.planning.get(project_id)
+        parts = self.tools.plan_parts.get(project_id, 0)
+        if not state or parts == state["parts"]:
+            return
+        rows = await self.db.fetchall("SELECT frames FROM shots WHERE project_id = ? AND deleted_at IS NULL", (project_id,))
+        scenes = await self.db.fetchone("SELECT COUNT(*) AS n FROM scenes WHERE project_id = ? AND deleted_at IS NULL",
+                                        (project_id,))
+        state.update(parts=parts, seconds=round(sum((r["frames"] - 1) / 24 for r in rows), 1), scenes=scenes["n"])
+        await self.bus.publish("plan.progress", dict(state), project_id)
 
     async def _turn(self, project_id: str, turn_id: str, text: str, rounds: int | None,
                     expect: tuple[str, str] | None = None, parts: int = 0, resume=None):
@@ -134,6 +181,8 @@ class DirectorChat:
                             continue
                         return
                     messages = await self._run_tools(project_id, turn_id, result, succeeded)
+                    if parts:
+                        await self._progress(project_id)
                 await self._fail(project_id, turn_id, f"stopped after {rounds} tool rounds")
                 return
             except (GatewayError, OSError) as exc:

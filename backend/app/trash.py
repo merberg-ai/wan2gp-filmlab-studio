@@ -37,7 +37,8 @@ class Trash:
         """Live shots that reference the asset (or one look of it)."""
         where, arg = ("v.asset_id = ?", asset_id) if asset_id else ("r.variant_id = ?", variant_id)
         return await self.db.fetchall(
-            "SELECT DISTINCT s.id AS shot_id, s.position, s.title, s.status, p.id AS project_id, p.title AS project_title "
+            "SELECT DISTINCT s.id AS shot_id, s.position, s.title, s.status, s.locked, p.id AS project_id, "
+            "p.title AS project_title, r.variant_id, v.name AS variant_name, v.version "
             "FROM shot_refs r JOIN shots s ON s.id = r.shot_id JOIN projects p ON p.id = s.project_id "
             f"JOIN variants v ON v.id = r.variant_id WHERE {where} AND s.deleted_at IS NULL AND p.deleted_at IS NULL "
             "ORDER BY p.title, s.position", (arg,))

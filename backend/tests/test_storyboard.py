@@ -468,6 +468,27 @@ def test_a_long_plan_comes_in_parts_and_later_parts_never_replace(make_harness):
     assert len(asks) == 3 and "“Later scene 1”" in asks[-1]["messages"][0]["content"]
 
 
+def test_plan_progress_and_stop_keep_the_saved_parts(make_harness):
+    h = make_harness().login()
+    pid = new_project(h)
+    patch(h, f"/api/projects/{pid}", {"brief": "A soldier waits in the trench at dusk, then marches away.",
+                                      "target_seconds": 30})
+    h.gateway.hang_next_part = True  # part 1 is saved, then the director takes its time over part 2
+    assert h.post(f"/api/projects/{pid}/plan", {"replace_drafts": True}).status_code == 202
+    proj = h.wait_for(lambda: (p := h.project(pid))["planning"] and p["planning"]["parts"] == 1 and p, what="part 1")
+    assert proj["director_busy"] and proj["planning"]["seconds"] == 12 and proj["planning"]["scenes"] == 2
+    events = [e for e in h.c.portal.call(h.studio.bus.replay, 0) if e["type"] == "plan.progress"]
+    assert events and events[-1]["payload"]["parts"] == 1
+    assert h.post(f"/api/projects/{pid}/chat/stop").json() == {"stopped": True}
+    proj = h.project(pid)
+    assert not proj["director_busy"] and proj["planning"] is None and len(proj["shots"]) == 3  # part 1 stays
+    chat = h.c.get(f"/api/projects/{pid}/chat").json()
+    assert chat[-1]["role"] == "note" and chat[-1]["content"].startswith("Stopped by you after 1 part")
+    assert h.post(f"/api/projects/{pid}/chat/stop").json() == {"stopped": False}
+    h.gateway.hang_next_part = False
+    assert h.post(f"/api/projects/{pid}/chat", {"text": "hello"}).status_code in (200, 202)  # the chat works again
+
+
 def test_an_empty_reply_mid_plan_carries_on_from_the_saved_parts(make_harness):
     """Live: gemma's tool call for the next part is sometimes dropped (an empty reply) after parts are saved.
     FilmLab starts a fresh conversation once and asks for the rest, as Plan more does, never re-planning saved parts."""

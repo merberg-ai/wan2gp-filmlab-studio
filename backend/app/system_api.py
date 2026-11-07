@@ -304,3 +304,12 @@ async def director_fresh(project_id: str, request: Request):
         return await s.chat.fresh(project_id, OWNER)
     except ChatBusy as exc:
         raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/api/projects/{project_id}/chat/stop")
+async def director_stop(project_id: str, request: Request):
+    """Stop the director's current turn for the project now; what it already saved stays."""
+    s = st(request)
+    if not await s.db.fetchone("SELECT 1 FROM projects WHERE id = ? AND deleted_at IS NULL", (project_id,)):
+        raise HTTPException(404, "no such project")
+    return {"stopped": await s.chat.stop(project_id)}

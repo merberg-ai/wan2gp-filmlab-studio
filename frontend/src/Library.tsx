@@ -5,8 +5,10 @@ import { ImagePicker, type Pick } from "./ImagePicker";
 import { CreationView, CreatorPanel } from "./Creator";
 import {
   type Asset, type AssetDetail, type AssetKind, type Capability, type ImageJob, KIND_LABEL, KINDS, lib, type LibFile,
-  templateLabel, type TemplateSettings, usageWarning, type Variant,
+  templateLabel, type TemplateSettings, type Usage, usageWarning, type Variant,
 } from "./library-api";
+import { goShot } from "./Palette";
+import { showToast } from "./notify";
 
 type Subscribe = (l: Listener, resync: () => void) => () => void;
 type Act = (fn: () => Promise<unknown>) => Promise<void>;
@@ -80,6 +82,58 @@ function NewAsset({ onCreated }: { onCreated: (a: AssetDetail) => void }) {
       <button className="primary" disabled={!name.trim()}>Add</button>
       {error && <span className="error small block">{error}</span>}
     </form>
+  );
+}
+
+/** Every shot that uses the asset, by project and look; and putting one look in all of them. */
+function AssetUsage({ asset, act }: { asset: AssetDetail; act: Act }) {
+  const [usage, setUsage] = useState<Usage[] | null>(null);
+  const [to, setTo] = useState("");
+  const looks = asset.variants.filter((v) => v.files.some((f) => f.kind === "image"));
+  const sig = asset.variants.map((v) => `${v.id}:${v.files.length}`).join(",");
+  const load = useCallback(() => { lib.assetUsage(asset.id).then(setUsage).catch(() => setUsage([])); }, [asset.id]);
+  useEffect(load, [load, sig]);
+  if (!usage) return null;
+  const byProject = usage.reduce<Record<string, Usage[]>>((m, u) => { (m[u.project_title] ??= []).push(u); return m; }, {});
+  const target = looks.find((v) => v.id === to);
+  const moving = target ? usage.filter((u) => u.variant_id !== target.id) : [];
+  return (
+    <div className="card asset-usage">
+      <h2>Used in {usage.length ? `${new Set(usage.map((u) => u.shot_id)).size} shot${usage.length === 1 ? "" : "s"}` : "no shots yet"}</h2>
+      {Object.entries(byProject).map(([title, rows]) => (
+        <div key={title} className="usage-project">
+          <strong className="small">{title}</strong>
+          <ul className="usage-list small">
+            {rows.map((u) => (
+              <li key={`${u.shot_id}:${u.variant_id}`}>
+                <button className="link" onClick={() => goShot(u.project_id, u.shot_id)}>Shot {u.position} “{u.title}”</button>
+                <span className="muted"> · {u.variant_name} v{u.version}{u.locked ? " · 🔒" : ""}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {usage.length > 0 && looks.length > 1 && (
+        <div className="row small swap-look">
+          <span>Use one look everywhere:</span>
+          <select value={to} onChange={(e) => setTo(e.target.value)} aria-label="Look to use">
+            <option value="">Choose a look…</option>
+            {looks.map((v) => <option key={v.id} value={v.id}>{v.name} v{v.version}</option>)}
+          </select>
+          <button className="primary small" disabled={!target || !moving.length} onClick={() => act(async () => {
+            if (!target || !await ask(`Use “${target.name}” v${target.version} in ${moving.length} shot${moving.length === 1 ? "" : "s"}?`
+              + " Each keeps the reference in the same place; locked and rendering shots are skipped, and every change shows in the shot's History.",
+              { confirm: "Use this look" })) return;
+            const r = await lib.swapLook(asset.id, target.id);
+            showToast({ title: `“${target.name}” v${target.version} in ${r.changed.length} shot${r.changed.length === 1 ? "" : "s"}`,
+              kind: r.skipped.length ? "bad" : "ok",
+              body: r.skipped.length ? `Skipped ${r.skipped.map((s) => `${s.project_title} ${s.position}. ${s.title} (${s.reason})`).join("; ")}` : "" });
+            setTo("");
+            load();
+          })}>{target ? `Use in ${moving.length} shot${moving.length === 1 ? "" : "s"}` : "Use"}</button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -166,6 +220,7 @@ function AssetView({ id, subscribe }: { id: string; subscribe: Subscribe }) {
           </div>
         </div>
       )}
+      <AssetUsage asset={asset} act={act} />
       {asset.variants.map((v) => (
         <VariantCard key={v.id} variant={v} assetName={asset.name} onlyLook={asset.variants.length === 1} caps={caps} allImages={allImages} act={act} setNotice={setNotice} />
       ))}

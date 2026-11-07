@@ -57,9 +57,9 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
 
   useEffect(() => {  // the Ctrl+K palette opens a shot here
     const on = (e: Event) => {
-      const { projectId: pid, shotId } = (e as CustomEvent<{ projectId: string; shotId: string }>).detail;
+      const { projectId: pid, shotId, takeId } = (e as CustomEvent<{ projectId: string; shotId: string; takeId?: string }>).detail;
       if (pid !== projectId) return;
-      setSelectedShot(shotId); setSelectedTake(null); setPane("storyboard");
+      setSelectedShot(shotId); setSelectedTake(takeId ?? null); setPane(takeId ? "renders" : "storyboard");
       requestAnimationFrame(() => document.getElementById(`shot-${shotId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
     };
     window.addEventListener(SELECT_SHOT, on);
@@ -81,6 +81,7 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
       setLive((t) => ({ turnId: turn_id, text: "", tools: [...(t?.turnId === turn_id ? t.tools : []), { name, ok, arguments: args }] }));
     }
     if (e.type === "chat.message" && (e.payload.role === "assistant" || e.payload.role === "error")) setLive(null);
+    if (e.type === "chat.done") setLive(null);
     scheduleLoad();
   }, load), [projectId, subscribe, load, scheduleLoad]);
 
@@ -192,6 +193,8 @@ function ChatPanel({ projectId, messages, live, busy, act }: {
     <section className="panel chat">
       <div className="panel-head"><h2>Director</h2>
         <span className="grow">{busy && <span className="chip s-rendering">thinking…</span>}</span>
+        {busy && <button className="ghost small danger-text" title="Stop the director now; what it already saved stays"
+          onClick={() => act(() => api.stopChat(projectId))}>Stop</button>}
         <button className="ghost small" disabled={busy} title="The director forgets this chat; shots, takes and the edit stay"
           onClick={() => act(async () => {
             if (await ask("Start a fresh conversation? The director forgets this chat and starts from here. Shots, scenes, "
