@@ -58,7 +58,8 @@ async def plan_brief(s, project: dict, replace: bool) -> str:
         "target); refs (image file_ids, main character first, then the setting; usually one image per asset, at most 4); "
         "transition into the next shot (cut unless another one helps the story); rationale (why this shot, these "
         "references and this length); sound. The prompt is the picture only: it names every reference as <Picture N> "
-        "in refs order, places each character in the frame with an action and a few words on their look, and adds "
+        "in refs order, numbered from 1 (the first image in refs is <Picture 1>, the second <Picture 2>; never "
+        "<Picture 0>), places each character in the frame with an action and a few words on their look, and adds "
         "camera, light and mood.",
         SETTING_RULE.replace("this one prompt", "one shot's prompt"),
         SOUND_RULE,

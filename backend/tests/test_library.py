@@ -387,6 +387,33 @@ def test_prompt_picture_names_are_checked_against_refs(make_harness, images):
     assert not [m for m in checks() if "Picture" in m]
 
 
+def test_picture_numbers_start_at_one_and_every_attached_picture_is_named():
+    """Live (Smells like Anthony, shot 2): the prompt called the references <Picture 0>, <1>, <2> (one off), and
+    a redo that dropped Corporal Hale from the prompt left his picture attached, so he was still drawn."""
+    from app.capabilities import picture_problem
+    assert "numbered from 1" in picture_problem("<Picture 0> sings in <Picture 1> by <Picture 2>", 3)
+    assert picture_problem("<Picture 1> sings in <Picture 2>.", 3).startswith("<Picture 3> is attached but")
+    assert picture_problem("<Picture 1> sings in <Picture 2> by <Picture 3>", 3) is None
+    assert picture_problem("Anthony sings", 3) is None  # none named: only the gentler hint
+
+
+def test_director_redo_must_name_the_shots_pictures_and_inspections_count_as_working(make_harness, images):
+    h = make_harness().login()
+    pid = new_project(h)
+    _, _, hv, tv = refs_setup(h, images)
+    s = new_shot(h, pid, template=None)
+    set_refs(h, s["id"], hv, tv)
+    run = lambda name, args: h.c.portal.call(h.studio.tools.run, pid, name, json.dumps(args))  # noqa: E731
+    out = run("propose_redo", {"shot_id": s["id"], "reason": "an extra person is in the back",
+                               "prompt": "<Picture 1> waits alone in the trench at dusk. No other people."})
+    assert "<Picture 2> is attached" in out["error"] and "assign_refs" in out["error"] and "= " in out["error"], out
+    assert not h.c.portal.call(h.studio.db.fetchall, "SELECT id FROM redo_proposals WHERE shot_id = ?", (s["id"],))
+    out = run("update_shot", {"shot_id": s["id"], "rationale": "fix", "prompt": "<Picture 0> in <Picture 1> at dusk"})
+    assert "numbered from 1" in out["error"], out
+    from app.director.chat import failed
+    assert not failed({"status": "done", "error": None}) and failed({"error": "boom"}) and failed(None)
+
+
 def test_enhance_always_starts_from_the_owners_idea(make_harness, images):
     h = make_harness().login()
     pid = new_project(h)

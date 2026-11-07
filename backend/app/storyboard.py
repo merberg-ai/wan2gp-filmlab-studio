@@ -362,7 +362,7 @@ class Storyboard:
                             e.append(setting_error(setting_problem(shot["prompt"], place)))
                             continue
                         # A prompt naming a picture the shot doesn't have is an error in a plan, not a hint.
-                        blocking = issue["level"] == "block" or "but the shot has" in issue["message"]
+                        blocking = issue["level"] == "block" or issue.get("kind") == "picture"
                         (e if blocking else warnings).append(issue["message"] if blocking else f"{w}: {issue['message']}")
                 errors += [f"{w}: {x}" for x in e]
                 scene["shots"].append(shot)

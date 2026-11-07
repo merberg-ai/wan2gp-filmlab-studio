@@ -11,7 +11,7 @@ import logging
 import httpx
 
 from .. import library_context, shots
-from ..capabilities import setting_error, setting_problem
+from ..capabilities import setting_error, setting_problem, picture_problem
 from ..db import new_id, now
 from ..edit import EditError
 from ..library import LibraryError
@@ -418,6 +418,20 @@ class DirectorTools:
         if problem:
             raise ValueError(setting_error(problem) + "; nothing was saved, call it again with the fixed prompt")
 
+    async def _names_its_pictures(self, shot_id: str, prompt) -> None:
+        """The director's prompts must name exactly the shot's attached pictures, from <Picture 1>."""
+        if not prompt:
+            return
+        refs = await self.db.fetchall(
+            "SELECT r.position, a.name FROM shot_refs r JOIN variants v ON v.id = r.variant_id JOIN assets a ON "
+            "a.id = v.asset_id WHERE r.shot_id = ? ORDER BY r.position", (shot_id,))
+        problem = picture_problem(str(prompt), len(refs))
+        if problem:
+            legend = "; ".join(f"<Picture {i}> = {r['name']}" for i, r in enumerate(refs, start=1)) or "none"
+            raise ValueError(f"{problem}. The shot's references now: {legend}. To drop a character or place from the "
+                             "shot, remove its reference with assign_refs first (the prompt alone doesn't remove "
+                             "it). Nothing was saved; call it again with the fixed prompt")
+
     async def draft_shot(self, project_id, template=None, scene_id=None, rationale="", **fields):
         fields.pop("idea", None)  # the idea is the owner's own words
         if scene_id:
@@ -439,6 +453,7 @@ class DirectorTools:
         tpl = await self.renders.resolve_template(template) if template else None
         if "prompt" in fields:
             await self._says_its_setting(shot["scene_id"], fields["prompt"])
+            await self._names_its_pictures(shot["id"], fields["prompt"])
         before = await shots.snapshot(self.db, shot_id)
         updated = await shots.update_shot(self.db, self.bus, shot, fields, self.ACTOR, tpl, rationale=rationale)
         if await shots.snapshot(self.db, shot_id) == before:
@@ -520,11 +535,13 @@ class DirectorTools:
         insp = await self.studio.inspector.wait(t["id"], timeout=150)
         if not insp or insp["status"] == "running":
             return {"status": "running", "message": "Still inspecting; ask again in a minute."}
-        return {k: insp[k] for k in ("status", "verdict", "summary", "technical", "vision", "model", "error")}
+        out = {k: insp[k] for k in ("status", "verdict", "summary", "technical", "vision", "model")}
+        return out | ({"error": insp["error"]} if insp["error"] else {})  # "error" means the call failed
 
     async def propose_redo(self, project_id, shot_id, reason, prompt=None, seed=None):
         if prompt:
             await self._says_its_setting((await shots.get_shot(self.db, str(shot_id), project_id))["scene_id"], prompt)
+            await self._names_its_pictures(str(shot_id), prompt)
         res = await self.studio.runs.propose(project_id, str(shot_id), reason, prompt, seed, self.ACTOR)
         where = ("FilmLab renders it in the owner's redo run, within its limits, and inspects the new take."
                  if res["run_id"] else "Waiting for the owner to accept it in the cockpit. Nothing is rendering.")

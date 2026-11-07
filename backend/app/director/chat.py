@@ -43,6 +43,11 @@ READ_ONLY = {"get_project", "list_video_templates", "list_assets", "list_presets
              "get_render_status", "review_takes", "get_edit"}
 
 
+def failed(output) -> bool:
+    """A tool's result says it failed: an "error" with something in it (some results carry "error": null)."""
+    return not isinstance(output, dict) or bool(output.get("error"))
+
+
 class ChatBusy(RuntimeError):
     pass
 
@@ -285,7 +290,7 @@ class DirectorChat:
                 return True
             call = TurnResult("", [{"id": new_id()[:9], "name": "plan_storyboard", "arguments": json.dumps(plan)}])
             out = json.loads((await self._run_tools(project_id, turn_id, call, succeeded))[-1]["content"])
-            if "error" in out:
+            if failed(out):
                 refused += 1
                 if refused > 2:
                     done = self.tools.plan_parts.get(project_id, 0)
@@ -331,10 +336,10 @@ class DirectorChat:
             output = await self.tools.run(project_id, name, args)
             await self.db.audit("director", f"tool.{name}", project_id, {"args": args[:500]})
             await self.bus.publish("chat.tool", {"turn_id": turn_id, "name": name, "arguments": args,
-                                                 "ok": "error" not in output,
+                                                 "ok": not failed(output),
                                                  "summary": json.dumps(output)[:400]}, project_id)
             content = json.dumps(output)
-            if succeeded is not None and "error" not in output and "nothing changed" not in output.get("note", ""):
+            if succeeded is not None and not failed(output) and "nothing changed" not in output.get("note", ""):
                 succeeded.add(name)
             await self._save(project_id, "tool", content, tool_call_id=call["id"])
             follow.append({"role": "tool", "tool_call_id": call["id"], "content": content})

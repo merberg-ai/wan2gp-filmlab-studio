@@ -403,8 +403,10 @@ class FakeGateway:
                 "shot_id": m.group(1), "reason": "the setting was lost; restated the rainy night street",
                 "prompt": f"Redo {len(self.requests)}: a rainy suburban street at night, fog, no dialogue, no voices"}))
         if m := re.search(r"enhance shot .*\(shot_id (\w+)\)", text):
+            two = "<picture 2> =" in text  # the shot has two references (the enhance message lists them)
             return self._sse(tool=("update_shot", {"shot_id": m.group(1),
-                                                   "prompt": "<Picture 1> crouches in <Picture 2> as it burns, night, smoke",
+                                                   "prompt": "<Picture 1> crouches in <Picture 2> as it burns, night, smoke"
+                                                   if two else "A soldier crouches in the trench as it burns, night, smoke",
                                                    "rationale": "named the pictures"}))
         if text.startswith("[filmlab project") and "plan the storyboard" in text:
             return self._sse(tool=("plan_storyboard", self.plan_for(first["content"])))

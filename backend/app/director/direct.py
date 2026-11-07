@@ -19,7 +19,8 @@ SYSTEM = ("You are FilmLab's film director, planning a storyboard. You answer wi
 ASK = ("\n\nAnswer with JSON only: {\"all_planned\": false, \"plan\": {the arguments of your next plan_storyboard "
        "call: \"scenes\": [one or two scenes, with their shots]}}. When every scene of my brief is planned and saved, "
        "answer {\"all_planned\": true, \"summary\": \"All planned: …\"} with a short summary instead (scenes, shots, "
-       "total length, anything missing).")
+       "total length, anything missing). In each prompt the references are <Picture 1>, <Picture 2>, … in refs order, "
+       "numbered from 1, and every image in refs is named.")
 SAVED = ("Part {n} is saved. The storyboard now has these scenes: {scenes}. If my brief has scenes you haven't planned "
          "yet, answer with the next one or two, in film order (don't repeat a scene; keep the same style, characters "
          "and setting rules). If the whole brief is planned, answer with all_planned true and the summary.")

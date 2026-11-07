@@ -25,7 +25,7 @@ from .export import Exporter
 from .capabilities import Capabilities
 from .config import Settings
 from .db import Database, new_id, now
-from .director.chat import ChatBusy, DirectorChat
+from .director.chat import ChatBusy, DirectorChat, failed
 from .director.settings import DirectorSettings
 from .director.enhance import can_enhance, enhance_brief
 from .director.gateway import GatewayClient
@@ -607,7 +607,7 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
         for r in rows:
             if r["role"] == "tool" and r["tool_call_id"]:
                 try:
-                    ok[r["tool_call_id"]] = "error" not in json.loads(r["content"] or "{}")
+                    ok[r["tool_call_id"]] = not failed(json.loads(r["content"] or "{}"))
                 except ValueError:
                     ok[r["tool_call_id"]] = False
         out = []

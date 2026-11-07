@@ -342,12 +342,33 @@ def _h3_sound_issues(sound_fields: dict | None, refs: list[dict], voiced: list[d
 _PICTURE = re.compile(r"<\s*picture\s+(\d+)\s*>", re.I)
 
 
+def picture_problem(prompt: str, ref_count: int) -> str | None:
+    """What's wrong with the prompt's <Picture N> names for a shot with ref_count references, or None. Pictures are
+    numbered from 1 in refs order, and an attached picture the prompt never names is still used by the model."""
+    named = sorted({int(n) for n in _PICTURE.findall(prompt or "")})
+    if not named:
+        return None
+    if named[-1] > ref_count:
+        have = f"only {ref_count} reference{'s' if ref_count != 1 else ''}" if ref_count else "no references"
+        return f"The prompt names <Picture {named[-1]}> but the shot has {have}"
+    if named[0] < 1:
+        return (f"The prompt names <Picture {named[0]}>, but pictures are numbered from 1: <Picture 1> is the first "
+                "reference, in refs order")
+    unnamed = [n for n in range(1, ref_count + 1) if n not in named]
+    if unnamed:
+        pics = ", ".join(f"<Picture {n}>" for n in unnamed)
+        return (f"{pics} {'is' if len(unnamed) == 1 else 'are'} attached but the prompt never names "
+                f"{'it' if len(unnamed) == 1 else 'them'}, and the model still uses every attached picture: name "
+                f"{'it' if len(unnamed) == 1 else 'them'} in the prompt, or remove that reference")
+    return None
+
+
 def _picture_issues(prompt: str, ref_count: int) -> list[dict]:
     """The prompt's <Picture N> names must match the shot's references."""
-    named = sorted({int(n) for n in _PICTURE.findall(prompt or "")})
-    if named and named[-1] > ref_count:
-        have = f"only {ref_count} reference{'s' if ref_count != 1 else ''}" if ref_count else "no references"
-        return [{"level": "warn", "message": f"The prompt names <Picture {named[-1]}> but the shot has {have}"}]
+    named = _PICTURE.findall(prompt or "")
+    problem = picture_problem(prompt, ref_count)
+    if problem:
+        return [{"level": "warn", "kind": "picture", "message": problem}]
     if ref_count and not named:
         return [{"level": "warn", "message": "The prompt doesn't name its references (<Picture 1>, …); the model "
                                              "follows them better when it does. ✨ Enhance can rewrite it"}]
