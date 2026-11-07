@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api, type ChatMessage, type Job, type ProjectDetail, type Shot, type Take, type Template,
 } from "./api";
@@ -7,7 +7,7 @@ import { EditView } from "./EditView";
 import { ProjectSettings } from "./ProjectSettings";
 import { CompareTakes, TakeReview } from "./Review";
 import { InspectionView } from "./Autonomy";
-import { ask } from "./Dialog";
+import { ask, dialogOpen } from "./Dialog";
 import { Markdown } from "./Markdown";
 import { LiveActivity, type Step, StepsDone } from "./DirectorActivity";
 import { ACTIVE_JOB } from "./Shots";
@@ -15,6 +15,8 @@ import { Storyboard } from "./Storyboard";
 import { usedTake } from "./FilmStrip";
 import { etaText, useNow } from "./eta";
 import { SELECT_SHOT } from "./Palette";
+import { PANEL_LABEL, PANELS, type PanelName, PanelRail, useLayout } from "./layout";
+import { ReviewMode } from "./Review";
 
 type Subscribe = (l: Listener, r: () => void) => () => void;
 
@@ -41,6 +43,7 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
   const [pane, setPane] = useState<"storyboard" | "director" | "renders">("storyboard");  // phones show one panel at a time
   const [selectedShot, setSelectedShot] = useState<string | null>(null);
   const [selectedTake, setSelectedTake] = useState<string | null>(null);
+  const lay = useLayout();
   const [error, setError] = useState<string | null>(null);
   const reloadTimer = useRef<number>();
 
@@ -105,7 +108,8 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
   if (!project) return <main className="page">{error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>}</main>;
 
   return (
-    <main className={`workspace show-${pane}`}>
+    <main className={`workspace show-${pane} ${tab !== "edit" ? "resizable" : ""}`}
+      style={tab !== "edit" ? { ["--ws-cols" as string]: lay.template } : undefined}>
       <div className="ws-head">
         <a className="muted" href="#/">← Projects</a>
         <h1>{project.title}</h1>
@@ -116,6 +120,20 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
         </nav>
         {project.logline && <p className="muted">{project.logline}</p>}
         <ProjectSettings project={project} act={act} />
+        {tab !== "edit" && (
+          <div className="layout-controls small" role="group" aria-label="Panels">
+            <span className="muted">Panels:</span>
+            {PANELS.map((p) => (
+              <button key={p} className={`ghost small ${lay.hidden(p) ? "" : "on"}`} aria-pressed={!lay.hidden(p)}
+                title={lay.hidden(p) ? `Show ${PANEL_LABEL[p]}` : `Hide ${PANEL_LABEL[p]}`} onClick={() => lay.toggle(p)}>{PANEL_LABEL[p]}</button>
+            ))}
+            <select className="small" value="" aria-label="Focus on one panel" onChange={(e) => e.target.value && lay.focus(e.target.value as PanelName)}>
+              <option value="">Focus…</option>
+              {PANELS.map((p) => <option key={p} value={p}>{PANEL_LABEL[p]} only</option>)}
+            </select>
+            <button className="ghost small" title="Equal panels, all shown" onClick={lay.reset}>Reset</button>
+          </div>
+        )}
         {error && <p className="error" role="alert">{error}</p>}
       </div>
       {tab !== "edit" && (
@@ -128,10 +146,17 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
         </nav>
       )}
       {tab === "edit" ? <EditView project={project} subscribe={subscribe} /> : <>
-        <Storyboard project={project} templates={templates} selected={selectedShot} onSelect={(id) => { setSelectedShot(id); setSelectedTake(null); }} act={act} />
-        <ChatPanel projectId={projectId} messages={chat} live={live} busy={project.director_busy || live !== null} act={act} />
-        <MonitorPanel project={project} shot={shot} takes={takes} take={take} onTake={setSelectedTake} act={act}
-          onShowAll={() => { setSelectedShot(null); setSelectedTake(null); }} />
+        {lay.hidden("storyboard") ? <PanelRail name="storyboard" onShow={() => lay.toggle("storyboard")} />
+          : <Storyboard project={project} templates={templates} selected={selectedShot} onSelect={(id) => { setSelectedShot(id); setSelectedTake(null); }} act={act} />}
+        <div className="col-handle" role="separator" aria-orientation="vertical" aria-label="Resize the storyboard and director panels"
+          onPointerDown={(e) => lay.drag(0, e)} onDoubleClick={lay.reset} />
+        {lay.hidden("director") ? <PanelRail name="director" onShow={() => lay.toggle("director")} />
+          : <ChatPanel projectId={projectId} messages={chat} live={live} busy={project.director_busy || live !== null} act={act} />}
+        <div className="col-handle" role="separator" aria-orientation="vertical" aria-label="Resize the director and renders panels"
+          onPointerDown={(e) => lay.drag(1, e)} onDoubleClick={lay.reset} />
+        {lay.hidden("renders") ? <PanelRail name="renders" onShow={() => lay.toggle("renders")} />
+          : <MonitorPanel project={project} shot={shot} takes={takes} take={take} onTake={setSelectedTake} act={act}
+            onShowAll={() => { setSelectedShot(null); setSelectedTake(null); }} />}
       </>}
     </main>
   );
@@ -261,7 +286,10 @@ function MonitorPanel({ project, shot, takes, take, onTake, act, onShowAll }: {
   const recent = (shot ? finished : finished.slice(-5)).reverse();
   const title = (id: string) => project.shots.find((s) => s.id === id)?.title ?? "shot";
   const [comparing, setComparing] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const player = useRef<HTMLVideoElement>(null);
   const takeShot = take ? project.shots.find((s) => s.id === take.shot_id) ?? null : null;
+  useReviewKeys({ takes, take, onTake, act, player, onCompare: () => shotTakes.length > 1 && setComparing(true) });
   const shotTakes = take ? project.takes.filter((t) => t.shot_id === take.shot_id) : [];
   const used = takeShot ? usedTake(takeShot, shotTakes) : undefined;
   // while one shot is selected, say when another shot gets a newer take (it would otherwise stay out of view)
@@ -297,7 +325,10 @@ function MonitorPanel({ project, shot, takes, take, onTake, act, onShowAll }: {
         </details>
       )}
 
+      {reviewing && <ReviewMode project={project} takes={takes} act={act} onClose={() => setReviewing(false)} />}
       <div className="panel-head"><h2 className="grow">{shot ? `Takes · ${shot.title}` : "Latest takes"}</h2>
+        {takes.length > 0 && <button className="ghost small" title="Full-screen review: swipe right for good, left for reject, up for maybe"
+          onClick={() => setReviewing(true)}>Review mode</button>}
         {shot && <button className="ghost small" title="Show every shot's takes and renders, not just this shot's" onClick={onShowAll}>Show all</button>}
       </div>
       {shot && newestElsewhere && (
@@ -306,7 +337,7 @@ function MonitorPanel({ project, shot, takes, take, onTake, act, onShowAll }: {
       )}
       {take ? (
         <>
-          <video key={take.id} className="player" controls preload="metadata" src={api.mediaUrl(take.media_id)}
+          <video key={take.id} ref={player} className="player" controls preload="metadata" src={api.mediaUrl(take.media_id)}
             poster={take.thumb_media_id ? api.mediaUrl(take.thumb_media_id) : undefined} />
           <p className="muted small">
             {take.width}×{take.height} · {take.fps} fps · {take.frames} f · {take.duration_s?.toFixed(2)} s
@@ -325,11 +356,13 @@ function MonitorPanel({ project, shot, takes, take, onTake, act, onShowAll }: {
           <TakeDetails take={take} />
         </>
       ) : <p className="muted small">No takes yet.</p>}
+      {take && <p className="small muted keys-hint">Keys: <kbd>J</kbd>/<kbd>K</kbd> previous/next take · <kbd>Space</kbd> play ·{" "}
+        <kbd>A</kbd> good · <kbd>M</kbd> maybe · <kbd>R</kbd> reject · <kbd>C</kbd> compare</p>}
       <div className="thumbs">
         {takes.map((t) => (
           <button key={t.id} className={`thumb ${t.id === take?.id ? "selected" : ""} v-${t.verdict ?? "none"}`} onClick={() => onTake(t.id)}
             title={`${new Date(t.created_at).toLocaleString()}${t.verdict ? ` · ${t.verdict}` : ""}${t.notes ? ` · ${t.notes}` : ""}`}>
-            {t.thumb_media_id ? <img src={api.mediaUrl(t.thumb_media_id)} alt={`take of ${title(t.shot_id)}`} loading="lazy" /> : "take"}
+            {t.thumb_media_id ? <ScrubThumb take={t} alt={`take of ${title(t.shot_id)}`} /> : "take"}
             {t.verdict && <span className="verdict-dot" aria-label={t.verdict} />}
             {t.preview && <span className="preview-mark" title="Preview: quick and low resolution">P</span>}
             {project.inspections?.[t.id]?.verdict === "flagged" && <span className="insp-flag" title={project.inspections[t.id].summary ?? ""}>⚠</span>}
@@ -338,6 +371,54 @@ function MonitorPanel({ project, shot, takes, take, onTake, act, onShowAll }: {
       </div>
     </section>
   );
+}
+
+/** A take's thumbnail that scrubs through its filmstrip (8 frames) as the pointer moves over it. */
+function ScrubThumb({ take, alt }: { take: Take; alt: string }) {
+  const [frame, setFrame] = useState<number | null>(null);
+  const strip = api.filmstripUrl(take.media_id);
+  return (
+    <span className="scrub" onPointerMove={(e) => {
+      if (e.pointerType === "touch") return;
+      const r = e.currentTarget.getBoundingClientRect();
+      setFrame(Math.max(0, Math.min(7, Math.floor(((e.clientX - r.left) / r.width) * 8))));
+    }} onPointerLeave={() => setFrame(null)}>
+      <img src={api.mediaUrl(take.thumb_media_id!)} alt={alt} loading="lazy" style={frame == null ? undefined : { visibility: "hidden" }} />
+      {frame != null && <span className="scrub-frame" aria-hidden
+        style={{ backgroundImage: `url(${strip})`, backgroundPosition: `${(frame * 100) / 7}% 0` }} />}
+    </span>
+  );
+}
+
+/** Review from the keyboard while the Renders panel shows a take (not while typing). */
+function useReviewKeys({ takes, take, onTake, act, player, onCompare }: {
+  takes: Take[]; take: Take | null; onTake: (id: string) => void; act: (fn: () => Promise<unknown>) => Promise<void>;
+  player: RefObject<HTMLVideoElement>; onCompare: () => void;
+}) {
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      if (!take || e.ctrlKey || e.metaKey || e.altKey || dialogOpen()) return;
+      const el = e.target as HTMLElement;
+      if (el.closest("input, textarea, select, [contenteditable=true]")) return;
+      const panel = document.querySelector<HTMLElement>(".panel.monitor");  // hidden on a phone's other tabs
+      if (!panel || panel.offsetParent === null) return;
+      const i = takes.findIndex((t) => t.id === take.id);
+      const verdict = (v: string) => act(() => api.reviewTake(take.id, { verdict: take.verdict === v ? "" : v }));
+      const k = e.key.toLowerCase();
+      if (k === "j" && i > 0) onTake(takes[i - 1].id);
+      else if (k === "k" && i < takes.length - 1) onTake(takes[i + 1].id);
+      else if (k === " " && player.current && el.tagName !== "BUTTON" && el.tagName !== "VIDEO") {
+        if (player.current.paused) player.current.play().catch(() => undefined); else player.current.pause();
+      } else if (k === "a" || k === "g") verdict("good");
+      else if (k === "m") verdict("maybe");
+      else if (k === "r") verdict("reject");
+      else if (k === "c") onCompare();
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, [takes, take, onTake, act, player, onCompare]);
 }
 
 const OUTCOME: Record<string, string> = {

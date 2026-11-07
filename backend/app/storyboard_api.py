@@ -218,6 +218,7 @@ class BatchIn(BaseModel):
     shot_ids: list[str] = Field(min_length=1, max_length=60)
     request_id: str | None = None  # approving the director's request
     preview: bool = False  # quick low-resolution takes first
+    start_at: str | None = None  # ISO time to start at (render overnight)
 
 
 @router.get("/api/projects/{project_id}/batch-review")
@@ -264,7 +265,7 @@ async def create_batch(project_id: str, body: BatchIn, request: Request):
     if not s.wangp_ready.is_set():
         raise HTTPException(503, "WanGP is not connected; start WanGP with MCP enabled")
     try:
-        batch = await s.batches.create(project_id, body.shot_ids, OWNER, preview=body.preview)
+        batch = await s.batches.create(project_id, body.shot_ids, OWNER, preview=body.preview, start_at=body.start_at)
     except (BatchError, shots.ShotError) as exc:
         raise bad(exc) from exc
     if body.request_id:
@@ -290,6 +291,19 @@ async def batch_retry(batch_id: str, position: int, request: Request):
     try:
         return await st(request).batches.retry(batch_id, position, OWNER)
     except (BatchError, RenderError) as exc:
+        raise bad(exc) from exc
+
+
+class MoveItemIn(BaseModel):
+    direction: str  # up | down
+
+
+@router.post("/api/batches/{batch_id}/items/{position}/move")
+async def batch_move(batch_id: str, position: int, body: MoveItemIn, request: Request):
+    """Render a waiting shot sooner or later."""
+    try:
+        return await st(request).batches.move(batch_id, position, body.direction, OWNER)
+    except BatchError as exc:
         raise bad(exc) from exc
 
 

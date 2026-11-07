@@ -28,6 +28,8 @@ How to make a film with FilmLab Studio, screen by screen.
 
 Everything updates live: progress, new takes and the director's replies appear without reloading. A toast tells you when a render finishes; with 🔔 on, you also get a system notification when FilmLab isn't on screen.
 
+On a wide screen the project's three panels (Storyboard, Director, Renders) can be **resized** by dragging the bars between them (double-click one to reset). **Panels:** in the project header hides or shows each one (a hidden panel is a thin bar you click to bring back), **Focus…** shows one panel only, and **Reset** brings back the default. Your layout is remembered in this browser. Phones show one panel at a time, on tabs.
+
 ## Projects
 
 **Projects → New project.** Give it a title and, optionally, a template:
@@ -103,6 +105,10 @@ Open a project's **Brief** (top of the storyboard), write what the film is about
 - **Select** lets you tick shots, or a whole scene, and then **Render…**, **Lock**, **Unlock**, **Change…** (model, size or length) or **Delete** them together. *Unlocked drafts* selects what a re-plan would replace. Locked, approved and rendering shots are skipped, with the reason.
 - Deleting a shot or a scene shows **Undo** for a few seconds; the shots are also in **Recently deleted** afterwards.
 - **Render storyboard…** reviews every shot with WanGP first (what will render, what can't and why, how long it should take) and then renders your selection as a **batch**, one shot at a time, in order. Pause, resume or cancel it from the batch bar, and retry failed shots. Tick **Preview first** for a preview batch (see [Rendering](#rendering)).
+  - The review says roughly **when it will be done** ("Done around 9:10 PM"), from this PC's past renders.
+  - **Start at a set time** schedules it, for example overnight: it waits, paused, and starts by itself (FilmLab must be running then). **Start now** starts it early.
+  - In the batch bar, **↑ ↓** move a waiting shot sooner or later.
+- **▶ Animatic** plays the storyboard as stills for each shot's length: the take the edit uses, else the shot's first reference, else its prompt on a card. It shows the transitions, the shot's idea as a caption, and the edit's first music track. Space plays and pauses; Esc closes.
 
 ## Shots
 
@@ -165,7 +171,10 @@ A take that looks wrong is **flagged ⚠**. Inspection is advice; it never delet
 
 - Mark each take **👍 Good**, **🤔 Maybe** or **👎 Reject**, and add notes on what works and what doesn't.
 - **Use in edit** picks the take the edit uses (by default the newest good one).
-- **Compare A/B…** plays two takes side by side, in sync.
+- **Compare A/B…** plays two takes side by side, in sync, and **Keep this one** picks it for the edit.
+- Move the pointer over a take's thumbnail to **scrub** through it.
+- **Keys** while a take shows: <kbd>J</kbd>/<kbd>K</kbd> previous and next take, <kbd>Space</kbd> play, <kbd>A</kbd> good, <kbd>M</kbd> maybe, <kbd>R</kbd> reject, <kbd>C</kbd> compare.
+- **Review mode** (in the Renders panel, made for phones) shows one take at a time, full screen and looping: swipe **right** for 👍 good, **left** for 👎 reject, **up** for 🤔 maybe, and it moves to the next. It starts at the first take you haven't reviewed.
 - After **👎 Reject**, a card offers to **Render again** (new random seed; *Add to queue* if something's rendering), **Edit the shot first**, or **Ask the director to fix it**: it looks at the take and your notes and proposes a revised prompt for you to accept.
 
 ## Autonomy and redo runs
@@ -194,6 +203,8 @@ The **Edit & export** tab assembles the film from each shot's chosen take, in st
 
   Exports are MP4 (H.264/AAC) with an SRT caption file and a manifest of every source used.
 - The **Contact sheet** shows every shot's frames and inspection at a glance.
+
+**Music** comes from the Library (kind *Sound*), up to two tracks placed on the film's timeline (start, where in the file, level, fades, ducking under dialogue). **Whole film** puts a track under the entire film.
 
 ## Settings
 

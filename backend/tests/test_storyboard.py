@@ -516,3 +516,30 @@ def test_an_empty_reply_mid_plan_carries_on_from_the_saved_parts(make_harness):
     last = h.c.get(f"/api/projects/{pid2}/chat").json()[-1]
     assert last["role"] == "error" and "after 2 part(s)" in last["content"] and "Plan more" in last["content"], last
     assert len(h.project(pid2)["shots"]) == 6
+
+
+def test_a_batch_can_wait_for_its_start_time_and_waiting_shots_can_move(make_harness, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    import app.batches as batches_mod
+    monkeypatch.setattr(batches_mod, "SCHEDULE_CHECK_S", 0.05)
+    h = make_harness("slow").login()
+    pid = new_project(h)
+    ids = three_shots(h, pid)
+    later = (datetime.now(timezone.utc) + timedelta(hours=8)).isoformat().replace("+00:00", "Z")
+    b = h.post(f"/api/projects/{pid}/batches", {"shot_ids": ids, "start_at": later}).json()
+    assert b["status"] == "paused" and b["start_at"] == later and "waits to start" in b["pause_reason"]
+    assert not [n for n, _ in h.wangp.calls if n == "wangp_generate"]  # nothing submitted yet
+    # waiting shots can be reordered: the third goes before the second
+    b = h.post(f"/api/batches/{b['id']}/items/3/move", {"direction": "up"}).json()
+    assert [i["shot_id"] for i in b["items"]] == [ids[0], ids[2], ids[1]]
+    assert h.post(f"/api/batches/{b['id']}/items/1/move", {"direction": "sideways"}).status_code in (409, 422)
+    # when the time comes it starts by itself, in the new order
+    h.c.portal.call(h.studio.db.execute, "UPDATE batches SET start_at = ? WHERE id = ?",
+                    ((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat().replace("+00:00", "Z"), b["id"]))
+    h.c.portal.call(h.studio.batches.resume_all)
+    b = wait_batch(h, pid, lambda x: x["status"] == "running" and x["items"][0]["status"] == "rendering", "started")
+    assert b["start_at"] is None and b["pause_reason"] is None
+    gen = [a for n, a in h.wangp.calls if n == "wangp_generate"]
+    assert gen and gen[0]["settings"]["prompt"].startswith("Fog")
+    bad = h.post(f"/api/projects/{pid}/batches", {"shot_ids": ids, "start_at": "tomorrow"})
+    assert bad.status_code in (409, 422)

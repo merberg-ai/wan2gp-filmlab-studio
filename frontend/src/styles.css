@@ -764,3 +764,51 @@ table.matrix { display: block; max-width: 100%; overflow-x: auto; }
 .card.asset-usage h2 { margin: 0; font-size: 15px; }
 .usage-list { margin: 2px 0 0; padding-left: 18px; }
 .swap-look { flex-wrap: wrap; gap: 6px; align-items: center; }
+
+/* stage 3: scheduled batches, hover scrub, review keys */
+.start-at { gap: 8px; align-items: center; margin: 6px 0 0; flex-wrap: wrap; }
+.scrub { position: relative; display: block; width: 100%; height: 100%; }
+.scrub img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scrub-frame { position: absolute; inset: 0; background-size: 800% 100%; background-repeat: no-repeat; border-radius: inherit; }
+.keys-hint { margin: 2px 0 6px; }
+kbd { font: 11px/1 ui-monospace, monospace; padding: 2px 5px; border-radius: 4px; border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06); color: var(--text); }
+@media (hover: none) { .keys-hint { display: none; } }
+
+/* stage 4: resizable columns, hidden panels, review mode, animatic */
+@media (min-width: 1101px) {
+  .workspace.resizable { grid-template-columns: var(--ws-cols, minmax(300px, 1fr) 10px minmax(340px, 1.2fr) 10px minmax(300px, 1fr)); column-gap: 2px; }
+  .col-handle { cursor: col-resize; position: relative; touch-action: none; }
+  .col-handle::after { content: ""; position: absolute; top: 20%; bottom: 20%; left: 4px; width: 2px; border-radius: 1px; background: var(--line); }
+  .col-handle:hover::after { background: var(--accent); }
+}
+@media (max-width: 1100px) { .col-handle, .layout-controls { display: none !important; } .panel.rail { display: none; } }
+.layout-controls { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; }
+.panel.rail { padding: 6px 0; display: flex; justify-content: center; overflow: hidden; }
+.rail-button { background: none; border: 0; color: var(--muted); writing-mode: vertical-rl; transform: rotate(180deg); padding: 10px 0; cursor: pointer; letter-spacing: .04em; }
+.rail-button:hover { color: var(--accent); }
+
+.review-mode, .animatic { position: fixed; inset: 0; z-index: 60; background: rgba(5, 6, 9, 0.97); display: grid; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); gap: 8px; }
+.review-mode { grid-template-rows: auto 1fr auto auto auto; }
+.rm-top, .an-top { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+.rm-stage { display: grid; place-items: center; min-height: 0; touch-action: none; user-select: none; position: relative; transition: transform .05s; }
+.rm-stage video { max-width: 100%; max-height: 100%; border-radius: 10px; background: #000; }
+.rm-stage.rm-good video { box-shadow: 0 0 0 3px var(--ok); }
+.rm-stage.rm-reject video { box-shadow: 0 0 0 3px var(--bad); }
+.rm-stage.rm-maybe video { box-shadow: 0 0 0 3px var(--warn); }
+.rm-badge { position: absolute; top: 12px; padding: 4px 12px; border-radius: 999px; background: rgba(0, 0, 0, 0.7); font-weight: 700; }
+.rm-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.rm-actions button { padding: 12px; font-size: 15px; }
+.rm-idea, .rm-help { margin: 0; text-align: center; }
+
+.animatic { grid-template-rows: auto 1fr auto auto; }
+.an-stage { position: relative; min-height: 0; display: grid; place-items: center; overflow: hidden; border-radius: 10px; background: #000; }
+.an-still { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.an-card { display: grid; place-items: center; padding: 10%; color: var(--muted); font-size: 18px; text-align: center; background: #111; }
+.an-caption { position: absolute; left: 12px; right: 12px; bottom: 12px; display: grid; gap: 2px; padding: 8px 12px; border-radius: 8px; background: rgba(0, 0, 0, 0.6); }
+.an-controls { gap: 10px; align-items: center; }
+.an-strip { display: flex; gap: 2px; height: 46px; }
+.an-cell { flex-basis: 0; min-width: 14px; padding: 0; border: 1px solid transparent; border-radius: 4px; overflow: hidden; background: #111; color: var(--muted); }
+.an-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.an-cell.on { border-color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .rm-stage { transition: none; } }

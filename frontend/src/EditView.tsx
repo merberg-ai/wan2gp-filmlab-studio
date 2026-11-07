@@ -234,6 +234,8 @@ function MusicPanel({ tl, patch }: { tl: Timeline; patch: (p: Parameters<typeof 
             <label>Fade in<NumberField value={m.fade_in_s} min={0} max={30} step={0.5} onCommit={(v) => change(i, { fade_in_s: v }, "music fade in")} /></label>
             <label>Fade out<NumberField value={m.fade_out_s} min={0} max={30} step={0.5} onCommit={(v) => change(i, { fade_out_s: v }, "music fade out")} /></label>
             <label className="check"><input type="checkbox" checked={m.duck} onChange={(e) => change(i, { duck: e.target.checked }, "music ducking")} /> Duck under dialogue</label>
+            <button className="ghost small" title="Play it under the whole film: from the start, a gentle fade in and a longer fade out at the end"
+              onClick={() => change(i, { start_s: 0, offset_s: 0, fade_in_s: 1, fade_out_s: 3 }, "music under the whole film")}>Whole film</button>
             <button className="ghost small" onClick={() => save(music.filter((_, j) => j !== i), "removed music")}>Remove</button>
           </div>
         </div>

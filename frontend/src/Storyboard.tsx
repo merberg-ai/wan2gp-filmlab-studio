@@ -9,6 +9,7 @@ import { SIZES } from "./ProjectSettings";
 import { showToast } from "./notify";
 import { templateOptions } from "./ShotRefs";
 import { FilmStrip } from "./FilmStrip";
+import { Animatic } from "./Animatic";
 import { duration, etaText, expected, jobEta, PREVIEW_SHARE, useNow } from "./eta";
 
 type Act = (fn: () => Promise<unknown>) => Promise<void>;
@@ -24,6 +25,7 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
   const [dragging, setDragging] = useState<string | null>(null);
   // Select mode: shots (and whole scenes) for a bulk action
   const [picking, setPicking] = useState(false);
+  const [animatic, setAnimatic] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pickedScenes, setPickedScenes] = useState<Set<string>>(new Set());
   useEffect(() => {  // drop what's gone (deleted elsewhere, or by the bulk action itself)
@@ -108,6 +110,8 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
             title="Select shots or whole scenes to render, lock, change or delete them together"
             onClick={() => { setPicking((v) => !v); clearPicks(); }}>{picking ? "Done" : "Select"}</button>
         )}
+        {project.shots.length > 0 && <button className="ghost" title="Play the storyboard as timed stills, with transitions and the edit's music"
+          onClick={() => setAnimatic(true)}>▶ Animatic</button>}
         <button className="ghost" onClick={() => act(() => api.createScene(project.id, { title: `Scene ${project.scenes.length + 1}` }))}>+ Scene</button>
         <button className="primary" disabled={!project.shots.length || !!(project.batch && ["running", "paused"].includes(project.batch.status))}
           onClick={() => setReview({})}>Render storyboard…</button>
@@ -115,6 +119,7 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
       <LengthMeter total={total} target={project.target_seconds} scenes={groups.filter((g) => g.shots.length).map((g) => ({
         key: g.key, title: g.scene?.title ?? "Unsorted", seconds: g.shots.reduce((n, s) => n + (s.frames - 1) / 24, 0) }))} />
       {project.director_busy && project.planning && <PlanProgress project={project} act={act} />}
+      {animatic && <Animatic project={project} onClose={() => setAnimatic(false)} />}
       <FilmStrip project={project} selected={selected} onSelect={onSelect} act={act} />
       <BriefPanel project={project} act={act} />
       {project.batch_requests.map((r) => (
@@ -452,6 +457,7 @@ function BatchBar({ batch, project, act }: { batch: Batch; project: ProjectDetai
   const problems = batch.items.filter((i) => ["failed", "skipped", "cancelled"].includes(i.status));
   if (!open && !problems.length) return null;
   const done = batch.items.filter((i) => i.status === "done").length;
+  const pendingCount = batch.items.filter((i) => i.status === "pending").length;
   const current = batch.items.find((i) => i.status === "rendering");
   const job = current && jobs.find((j) => j.id === current.job_id);
   const shotOf = (id: string) => project.shots.find((s) => s.id === id);
@@ -470,13 +476,17 @@ function BatchBar({ batch, project, act }: { batch: Batch; project: ProjectDetai
           {batch.status === "paused" && " · paused"}{batch.status === "cancelled" && " · cancelled"}{batch.status === "done" && " · finished"}</strong>
         {batch.status === "running" && <button className="ghost small" title="Let the current render finish, then stop"
           onClick={() => act(() => api.batchAction(batch.id, "pause"))}>Pause</button>}
-        {batch.status === "paused" && <button className="primary small" onClick={() => act(() => api.batchAction(batch.id, "resume"))}>Resume</button>}
+        {batch.status === "paused" && <button className="primary small" onClick={() => act(() => api.batchAction(batch.id, "resume"))}>
+          {batch.start_at ? "Start now" : "Resume"}</button>}
         {open && <button className="ghost small danger-text" onClick={() => act(async () => {
           if (await ask("Cancel the batch? The current render is cancelled and nothing more is started; finished shots keep their takes."))
             await api.batchAction(batch.id, "cancel");
         })}>Cancel</button>}
       </div>
-      {batch.pause_reason && batch.status === "paused" && <p className="small warn">{batch.pause_reason}</p>}
+      {batch.status === "paused" && batch.start_at ? (
+        <p className="small">Starts by itself at <strong>{new Date(batch.start_at).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}</strong>
+          {" "}({duration(Math.max(0, (Date.parse(batch.start_at) - now) / 1000))} from now). FilmLab must be running then.</p>
+      ) : batch.pause_reason && batch.status === "paused" && <p className="small warn">{batch.pause_reason}</p>}
       {current && <p className="small">Rendering shot {current.shot_position} “{current.title}”
         {job?.phase ? ` · ${job.phase.replace(/_/g, " ")}${job.total_steps ? ` ${job.current_step ?? 0}/${job.total_steps}` : ""}`
           : job?.queue_ahead ? ` · waiting in WanGP's queue: ${job.queue_ahead} ahead` : ""}</p>}
@@ -494,11 +504,40 @@ function BatchBar({ batch, project, act }: { batch: Batch; project: ProjectDetai
             {["failed", "skipped", "cancelled"].includes(i.status) && batch.status !== "cancelled" && (
               <button className="ghost small" onClick={() => act(() => api.retryItem(batch.id, i.position))}>Retry</button>
             )}
+            {i.status === "pending" && open && pendingCount > 1 && (
+              <span className="move-controls">
+                <button className="ghost small" aria-label="Render sooner" title="Render sooner"
+                  onClick={() => act(() => api.moveBatchItem(batch.id, i.position, "up"))}>↑</button>
+                <button className="ghost small" aria-label="Render later" title="Render later"
+                  onClick={() => act(() => api.moveBatchItem(batch.id, i.position, "down"))}>↓</button>
+              </span>
+            )}
           </li>
         ))}
       </ol>
     </div>
   );
+}
+
+/** A datetime-local value for a Date (the browser's own time zone). */
+function localInput(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** 11 PM tonight, or in an hour if that has passed. */
+function tonight(): string {
+  const d = new Date();
+  d.setHours(23, 0, 0, 0);
+  return localInput(d.getTime() > Date.now() ? d : new Date(Date.now() + 3600_000));
+}
+
+/** "Done around 9:10 PM": the batch's estimate from now (or from its start time). */
+function finishText(seconds: number, startAt: string, partial: boolean): string {
+  const start = startAt ? new Date(startAt).getTime() : Date.now();
+  const end = new Date(start + seconds * 1000);
+  const day = end.toDateString() === new Date().toDateString() ? "" : `${end.toLocaleDateString([], { weekday: "short" })} `;
+  return `${partial ? "At the earliest done" : "Done"} around ${day}${end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
 }
 
 function RenderReview({ project, preselect, requestId, onClose, act }: {
@@ -508,6 +547,7 @@ function RenderReview({ project, preselect, requestId, onClose, act }: {
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [preview, setPreview] = useState(false);
+  const [startAt, setStartAt] = useState("");  // datetime-local, empty = now
   useEffect(() => {
     api.batchReview(project.id).then((d) => {
       setData(d);
@@ -549,8 +589,17 @@ function RenderReview({ project, preselect, requestId, onClose, act }: {
         {known.length ? ` About ${Math.max(1, Math.round(gpu / 60))} min of WanGP time for ${known.length === chosen.length ? "them" : `${known.length} of them`}, from ${basedOn} past render${basedOn === 1 ? "" : "s"} of the same model${known.length < chosen.length ? "; the others use a model not rendered here yet, so no estimate" : ""}.`
           : chosen.length ? " No estimate: these models haven't rendered on this machine yet." : ""}
         {preview && known.some((r) => share(r.model_type) !== 1) ? " (A guess for previews: none of these models has rendered a preview here yet.)" : ""}
+        {known.length > 0 && !data.queue?.total ? ` ${finishText(gpu + known.length * 15, startAt, known.length < chosen.length)}` : ""}
         {data.queue?.total ? ` WanGP's queue has ${data.queue.total} task${data.queue.total === 1 ? "" : "s"} now (${data.queue.other} not FilmLab's); the batch waits behind them.` : ""}
       </p>
+      <label className="row small start-at">
+        <span>Start</span>
+        <select value={startAt ? "later" : "now"} onChange={(e) => setStartAt(e.target.value === "later" ? tonight() : "")} aria-label="When to start">
+          <option value="now">now</option>
+          <option value="later">at a set time (render overnight)</option>
+        </select>
+        {startAt && <input type="datetime-local" value={startAt} min={localInput(new Date())} onChange={(e) => setStartAt(e.target.value)} />}
+      </label>
       <label className="row small preview-toggle" title={PREVIEW_HINT}>
         <input type="checkbox" checked={preview} onChange={(e) => setPreview(e.target.checked)} />
         <span><strong>Preview first</strong>: quick takes at half the width and height, to check timing, framing and continuity
@@ -559,9 +608,10 @@ function RenderReview({ project, preselect, requestId, onClose, act }: {
       <div className="actions">
         <button className="ghost" onClick={onClose}>Close</button>
         <button className="primary" disabled={!chosen.length} onClick={() => act(async () => {
-          await api.createBatch(project.id, chosen.map((r) => r.shot_id), requestId, preview);
+          await api.createBatch(project.id, chosen.map((r) => r.shot_id), requestId, preview,
+            startAt ? new Date(startAt).toISOString() : null);
           onClose();
-        })}>{preview ? "Preview" : "Render"} {chosen.length} shot{chosen.length === 1 ? "" : "s"}</button>
+        })}>{startAt ? "Schedule" : preview ? "Preview" : "Render"} {chosen.length} shot{chosen.length === 1 ? "" : "s"}</button>
       </div>
     </div>
   );

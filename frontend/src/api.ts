@@ -62,6 +62,8 @@ export interface Batch {
   id: string; project_id: string; status: "running" | "paused" | "done" | "cancelled"; pause_reason: string | null;
   queue_cap: number; requested_by: string; created_at: string; finished_at: string | null; items: BatchItem[];
   preview?: number | boolean;
+  /** Waiting (paused) until this time, then it starts by itself. */
+  start_at?: string | null;
 }
 export interface BulkResult {
   action: string; done: string[]; skipped: { shot_id: string; position: number; title: string; reason: string }[];
@@ -300,8 +302,10 @@ export const api = {
   planCheck: (pid: string) => request<{ issues: PlanIssue[] }>("GET", `/api/projects/${pid}/plan-check`),
   plan: (pid: string, replaceDrafts: boolean) => request("POST", `/api/projects/${pid}/plan`, { replace_drafts: replaceDrafts }),
   batchReview: (pid: string) => request<BatchReview>("GET", `/api/projects/${pid}/batch-review`),
-  createBatch: (pid: string, shotIds: string[], requestId?: string, preview = false) =>
-    request<Batch>("POST", `/api/projects/${pid}/batches`, { shot_ids: shotIds, request_id: requestId ?? null, preview }),
+  createBatch: (pid: string, shotIds: string[], requestId?: string, preview = false, startAt: string | null = null) =>
+    request<Batch>("POST", `/api/projects/${pid}/batches`, { shot_ids: shotIds, request_id: requestId ?? null, preview, start_at: startAt }),
+  moveBatchItem: (id: string, position: number, direction: "up" | "down") =>
+    request<Batch>("POST", `/api/batches/${id}/items/${position}/move`, { direction }),
   batchAction: (id: string, action: "pause" | "resume" | "cancel") => request<Batch>("POST", `/api/batches/${id}/${action}`),
   retryItem: (id: string, position: number) => request<Batch>("POST", `/api/batches/${id}/items/${position}/retry`),
   rejectBatchRequest: (id: string) => request("POST", `/api/batch-requests/${id}/reject`),

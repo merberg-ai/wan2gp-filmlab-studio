@@ -9,6 +9,7 @@ Each shot is approved and rendered exactly like a single render (same checks, pr
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from . import shots
 from .db import Database, new_id, now
@@ -18,6 +19,15 @@ from .renders import ACTIVE, RenderError
 log = logging.getLogger("filmlab.batches")
 RENDERABLE = ("draft", "pending_approval", "failed", "ready", "approved")
 OPEN = ("running", "paused")
+SCHEDULE_CHECK_S = 20  # how often a batch waiting for its start time is looked at
+
+
+def _when(ts: str) -> datetime:
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
+def waiting_note(start_at: str) -> str:
+    return f"waits to start at {start_at}"
 
 
 class BatchError(ValueError):
@@ -29,6 +39,7 @@ class Batches:
         self.db, self.bus, self.renders, self.storyboard = db, bus, renders, storyboard
         self._lock = asyncio.Lock()  # one pump at a time: no shot is ever submitted twice
         self.closing = False  # set when the backend shuts down: the next process submits the next shot
+        self._timer: asyncio.Task | None = None
         renders.on_finish = self.job_finished
 
     # --- reading ---------------------------------------------------------
@@ -51,8 +62,20 @@ class Batches:
     # --- start -----------------------------------------------------------
 
     async def create(self, project_id: str, shot_ids: list[str], actor: str, queue_cap: int = 1,
-                     preview: bool = False) -> dict:
-        """preview: every shot renders as a quick low-resolution take (renders.PREVIEW_SCALE)."""
+                     preview: bool = False, start_at: str | None = None) -> dict:
+        """preview: every shot renders as a quick low-resolution take (renders.PREVIEW_SCALE).
+        start_at: an ISO time to start at (render overnight); the batch waits, paused, until then."""
+        if start_at:
+            try:
+                when = _when(start_at)
+            except ValueError:
+                raise BatchError("the start time must look like 2026-11-07T23:00:00Z") from None
+            if when.tzinfo is None:
+                raise BatchError("give the start time with its time zone (e.g. ending in Z)")
+            if when <= datetime.now(timezone.utc):
+                start_at = None  # already due: start now
+            elif (when - datetime.now(timezone.utc)).days > 7:
+                raise BatchError("a batch can wait at most a week")
         if await self.db.fetchone("SELECT 1 FROM batches WHERE project_id = ? AND status IN ('running', 'paused')",
                                   (project_id,)):
             raise BatchError("this project already has a batch running or paused; finish or cancel it first")
@@ -72,17 +95,67 @@ class Batches:
         bid, ts = new_id(), now()
 
         def write(c):
-            c.execute("INSERT INTO batches (id, project_id, status, queue_cap, requested_by, created_at, updated_at, preview) "
-                      "VALUES (?, ?, 'running', ?, ?, ?, ?, ?)",
-                      (bid, project_id, max(1, min(int(queue_cap), 4)), actor, ts, ts, int(bool(preview))))
+            c.execute("INSERT INTO batches (id, project_id, status, queue_cap, requested_by, created_at, updated_at, preview, "
+                      "start_at, pause_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                      (bid, project_id, "paused" if start_at else "running", max(1, min(int(queue_cap), 4)), actor, ts,
+                       ts, int(bool(preview)), start_at, waiting_note(start_at) if start_at else None))
             for i, sid in enumerate(picked, start=1):
                 c.execute("INSERT INTO batch_items (batch_id, position, shot_id, updated_at) VALUES (?, ?, ?, ?)",
                           (bid, i, sid, ts))
         await self.db.transaction(write)
-        await self.db.audit(actor, "batch.create", bid, {"shots": picked, "preview": bool(preview)})
+        await self.db.audit(actor, "batch.create", bid, {"shots": picked, "preview": bool(preview), "start_at": start_at})
         await self._changed(project_id, bid)
-        await self.pump(bid)
+        if start_at:
+            self._watch()
+        else:
+            await self.pump(bid)
         return await self.get(bid)
+
+    # --- waiting for a start time ------------------------------------------------
+
+    def _watch(self):
+        if self._timer is None or self._timer.done():
+            self._timer = asyncio.create_task(self._scheduled(), name="batch-schedule")
+
+    async def _scheduled(self):
+        """Start each waiting batch when its time comes; stop looking once none is waiting."""
+        while not self.closing:
+            waiting = await self.db.fetchall("SELECT * FROM batches WHERE status = 'paused' AND start_at IS NOT NULL")
+            if not waiting:
+                return
+            for b in waiting:
+                if _when(b["start_at"]) <= datetime.now(timezone.utc):
+                    await self.db.execute("UPDATE batches SET start_at = NULL WHERE id = ?", (b["id"],))
+                    await self._set_status(b["id"], "running", None)
+                    await self.db.audit("system", "batch.scheduled_start", b["id"])
+                    await self.pump(b["id"])
+            await asyncio.sleep(SCHEDULE_CHECK_S)
+
+    async def move(self, batch_id: str, position: int, direction: str, actor: str) -> dict:
+        """Move a waiting shot one place earlier or later among the batch's waiting shots."""
+        b = await self.get(batch_id)
+        if b["status"] not in OPEN:
+            raise BatchError(f"the batch is {b['status']}")
+        pending = [i for i in b["items"] if i["status"] == "pending"]
+        idx = next((n for n, i in enumerate(pending) if i["position"] == int(position)), None)
+        if idx is None:
+            raise BatchError("only a waiting shot can be moved")
+        other = idx - 1 if direction == "up" else idx + 1 if direction == "down" else None
+        if other is None:
+            raise BatchError("direction must be up or down")
+        if not 0 <= other < len(pending):
+            return b
+        a, c = pending[idx], pending[other]
+
+        def write(cur):
+            ts = now()
+            for item, shot in ((a, c["shot_id"]), (c, a["shot_id"])):
+                cur.execute("UPDATE batch_items SET shot_id = ?, updated_at = ? WHERE batch_id = ? AND position = ? "
+                            "AND status = 'pending'", (shot, ts, batch_id, item["position"]))
+        await self.db.transaction(write)
+        await self.db.audit(actor, "batch.move", batch_id, {"shot_id": a["shot_id"], "direction": direction})
+        await self._changed(b["project_id"], batch_id)
+        return await self.get(batch_id)
 
     # --- the runner --------------------------------------------------------
 
@@ -171,6 +244,7 @@ class Batches:
                 if job["status"] in ("done", "failed", "cancelled", "interrupted"):
                     await self.job_finished(job, job["status"])
             await self.pump(b["id"])
+        self._watch()  # batches waiting for their start time
 
     # --- owner controls -------------------------------------------------------
 
@@ -188,6 +262,7 @@ class Batches:
         if b["status"] != "paused":
             raise BatchError(f"the batch is {b['status']}")
         await self._set_status(batch_id, "running", None)
+        await self.db.execute("UPDATE batches SET start_at = NULL WHERE id = ?", (batch_id,))  # Resume = start now
         await self.db.audit(actor, "batch.resume", batch_id)
         await self.pump(batch_id)
         return await self.get(batch_id)

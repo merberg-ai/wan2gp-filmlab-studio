@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ask } from "./Dialog";
-import { api, type Shot, type Take } from "./api";
+import { api, type ProjectDetail, type Shot, type Take } from "./api";
 import { confirmRender, EDIT_SHOT } from "./Shots";
 
 type Act = (fn: () => Promise<unknown>) => Promise<void>;
@@ -101,6 +101,69 @@ function Reshoot({ shot, notes, act, shotBusy, queueBusy, preview }: {
           onClick={askDirector}>Ask the director to fix it</button>}
       </div>
       {shot.locked && <p className="small muted">The shot is locked; unlock it to change it.</p>}
+    </div>
+  );
+}
+
+/** Full-screen review, made for phones: one take at a time, looping. Swipe right 👍 good, left 👎 reject, up 🤔 maybe
+ *  (or the buttons); each verdict moves to the next take. Starts at the first take you haven't reviewed. */
+export function ReviewMode({ project, takes, act, onClose }: {
+  project: ProjectDetail; takes: Take[]; act: Act; onClose: () => void;
+}) {
+  const order = [...takes].reverse();  // newest first
+  const [i, setI] = useState(() => Math.max(0, order.findIndex((t) => !t.verdict)));
+  const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const take = order[Math.min(i, order.length - 1)];
+  const shot = take ? project.shots.find((s) => s.id === take.shot_id) : undefined;
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", on);
+    document.body.classList.add("modal-open");
+    return () => { window.removeEventListener("keydown", on); document.body.classList.remove("modal-open"); };
+  }, [onClose]);
+  if (!take) return null;
+  const judge = (v: "good" | "maybe" | "reject") => act(async () => {
+    await api.reviewTake(take.id, { verdict: v });
+    if (i < order.length - 1) setI(i + 1); else onClose();
+  });
+  const end = () => {
+    const d = drag;
+    start.current = null; setDrag(null);
+    if (!d) return;
+    if (d.x > 80 && Math.abs(d.x) > Math.abs(d.y)) judge("good");
+    else if (d.x < -80 && Math.abs(d.x) > Math.abs(d.y)) judge("reject");
+    else if (d.y < -80) judge("maybe");
+  };
+  const hint = drag ? (drag.x > 40 ? "good" : drag.x < -40 ? "reject" : drag.y < -40 ? "maybe" : null) : null;
+  return (
+    <div className="review-mode" role="dialog" aria-modal="true" aria-label="Review takes">
+      <div className="rm-top">
+        <button className="ghost small" onClick={onClose}>Close</button>
+        <span className="small">{i + 1} of {order.length}{shot ? ` · ${shot.position}. ${shot.title}` : ""}{take.preview ? " · preview" : ""}
+          {take.verdict ? ` · ${take.verdict}` : ""}</span>
+        <span className="row">
+          <button className="ghost small" disabled={i === 0} aria-label="Previous take" onClick={() => setI(i - 1)}>‹</button>
+          <button className="ghost small" disabled={i >= order.length - 1} aria-label="Next take" onClick={() => setI(i + 1)}>›</button>
+        </span>
+      </div>
+      <div className={`rm-stage ${hint ? `rm-${hint}` : ""}`}
+        onPointerDown={(e) => { start.current = { x: e.clientX, y: e.clientY }; }}
+        onPointerMove={(e) => { if (start.current) setDrag({ x: e.clientX - start.current.x, y: e.clientY - start.current.y }); }}
+        onPointerUp={end} onPointerCancel={() => { start.current = null; setDrag(null); }}
+        style={drag ? { transform: `translate(${drag.x}px, ${Math.min(0, drag.y)}px) rotate(${drag.x / 30}deg)` } : undefined}>
+        <video key={take.id} src={api.mediaUrl(take.media_id)} autoPlay loop playsInline controls={false}
+          poster={take.thumb_media_id ? api.mediaUrl(take.thumb_media_id) : undefined}
+          onClick={(e) => { const v = e.currentTarget; if (v.paused) v.play().catch(() => undefined); else v.pause(); }} />
+        {hint && <span className="rm-badge">{VERDICT[hint]}</span>}
+      </div>
+      {shot?.idea && <p className="small muted rm-idea">{shot.idea}</p>}
+      <div className="rm-actions">
+        <button className="ghost" onClick={() => judge("reject")}>{VERDICT.reject}</button>
+        <button className="ghost" onClick={() => judge("maybe")}>{VERDICT.maybe}</button>
+        <button className="primary" onClick={() => judge("good")}>{VERDICT.good}</button>
+      </div>
+      <p className="small muted rm-help">Swipe right for good, left for reject, up for maybe. Tap the video to pause. Notes and reshoots are in the Renders panel.</p>
     </div>
   );
 }
