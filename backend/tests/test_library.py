@@ -419,8 +419,19 @@ def test_setting_and_speech_checks():
     setting = "Night, Suburban Street"
     assert not _setting_issues("Anthony walks down a suburban street on a rainy night.", setting)
     miss = _setting_issues("Close-up of Anthony glancing over his shoulder; street lighting.", setting)
-    assert miss and "night, suburban" in miss[0]["message"]
+    assert miss and "say when the scene is (night from" in miss[0]["message"]  # the street is named: only the time is missing
+    miss = _setting_issues("Close-up of Anthony glancing over his shoulder at night.", setting)
+    assert miss and "say where the scene is (suburban, street from" in miss[0]["message"]
     assert not _setting_issues("anything", "")
+    # Smells like Anthony, shot 3: the place is named (Nirvana_Gym, interior = indoor); the lighting is description
+    gym = "Nirvana_Gym, indoor, dim lighting with strong yellow/orange spotlights and haze."
+    assert not _setting_issues("Extreme close-up. Anthony_Retro (<Picture 1>) singing with an expressive face, hair "
+                               "moving. The background is the blurry, hazy interior of the Nirvana_Gym (<Picture 2>). "
+                               "High contrast, flickering lights, gritty 90s MTV textures.", gym)
+    assert not _setting_issues("Anthony sings into the microphone, indoors.", gym)  # in other words, but it says where
+    assert "(nirvana, gym, indoor from" in _setting_issues("Anthony sings into the microphone.", gym)[0]["message"]
+    assert not _setting_issues("The Red Rocket station at dusk.", "Sunset/Night, Red Rocket Wasteland Home")  # either time will do
+    assert not _setting_issues("A wide shot of the Super_Duper_Mart interior at noon.", "Midday, Super Duper Mart Interior")
     assert _speech_issues("Sound of rain and sharp breathing.")
     assert not _speech_issues("Sound of rain. No dialogue, no voices.")
     assert not _speech_issues("Nobody speaks; only the rain.")

@@ -228,17 +228,59 @@ class Capabilities:
                 "total": len(matrix)}
 
 
-# Each shot is generated on its own: the model knows nothing of the scene unless the prompt says it.
-_FILLER = {"with", "from", "into", "near", "the", "and", "outside", "inside", "during", "late", "early", "very"}
+# Each shot is generated on its own: the model knows nothing of the scene unless the prompt says WHERE and WHEN.
+# A scene's time and place is usually "Night, Suburban Street" or "Nirvana_Gym, indoor, dim lighting with strong
+# spotlights and haze": the time of day and the place must be in the prompt; descriptive extras (light, weather,
+# mood) are the prompt's own business, so they are never asked for word by word.
+_FILLER = {"with", "from", "into", "near", "the", "and", "during", "late", "early", "very", "its", "his", "her", "their"}
+_TIME = {"night", "nighttime", "midnight", "dawn", "dusk", "sunrise", "sunset", "morning", "noon", "midday",
+         "afternoon", "evening", "day", "daytime", "daylight", "twilight"}
+_SAME = [  # words a prompt may use for the same thing
+    {"indoor", "indoors", "interior", "inside"}, {"outdoor", "outdoors", "exterior", "outside", "open air"},
+    {"night", "nighttime", "midnight", "dark", "moonlit", "moonlight"}, {"day", "daytime", "daylight", "midday", "noon", "sunlit"},
+    {"dawn", "sunrise", "first light"}, {"dusk", "sunset", "twilight", "golden hour"}, {"morning", "sunrise"},
+    {"evening", "dusk", "sunset"},
+]
+_LONG = 4  # a part of the setting with more words than this describes it rather than names the place
+# light, weather and mood: description of the setting, not the place itself
+_DESCRIBES = {"light", "lights", "lighting", "lit", "dim", "bright", "glow", "glowing", "haze", "hazy", "fog", "foggy",
+              "mist", "misty", "rain", "rainy", "snow", "snowy", "smoke", "smoky", "neon", "spotlight", "spotlights",
+              "shadow", "shadows", "warm", "cold", "moody", "flickering", "candlelit", "overcast", "sunny", "cloudy",
+              "storm", "stormy", "wind", "windy", "colour", "color", "colours", "colors", "atmosphere", "atmospheric"}
+
+
+def _words(s: str) -> list[str]:
+    return [w for w in re.findall(r"[a-z]{3,}", s.lower()) if w not in _FILLER]
+
+
+def _mentions(word: str, text: str) -> bool:
+    forms = {word} | next((g for g in _SAME if word in g), set())
+    if len(word) >= 6:
+        forms.add(word[:5])  # lighting ~ lights, spotlights ~ spotlight
+    return any(re.search(rf"\b{re.escape(f)}", text) for f in forms)
 
 
 def _setting_issues(prompt: str, setting: str) -> list[dict]:
-    words = [w for w in re.findall(r"[a-z]{3,}", (setting or "").lower()) if w not in _FILLER]
-    text = (prompt or "").lower()
-    missing = [w for w in dict.fromkeys(words) if w not in text]
+    text = re.sub(r"[_\-]+", " ", (prompt or "").lower())
+    parts = [p for p in re.split(r"[,;]|\s+[-–—]\s+", setting or "") if _words(p)]
+    missing_when, place = [], []
+    for part in parts:
+        words = _words(part)
+        times = [w for w in words if w in _TIME]
+        if times:  # the time of day: say it, or a word for it ("Sunset/Night": either will do)
+            if not any(_mentions(w, text) for w in times):
+                missing_when += times
+            continue
+        if len(words) > _LONG or any(w in _DESCRIBES for w in words):
+            continue  # description, not the place
+        place.append(words)
+    # the place: named, or in other words ("Nirvana_Gym, indoor": the gym is enough; "interior" counts for indoor)
+    missing_where = [] if not place or any(_mentions(w, text) for ws in place for w in ws) else [w for ws in place for w in ws]
+    missing = list(dict.fromkeys(missing_when + missing_where))
     if not missing:
         return []
-    return [{"level": "warn", "message": f"The prompt doesn't say where and when the scene is ({', '.join(missing)} "
+    what = "where and when" if missing_when and missing_where else "when" if missing_when else "where"
+    return [{"level": "warn", "message": f"The prompt doesn't say {what} the scene is ({', '.join(missing)} "
                                          f"from “{setting.strip()}”). Every shot is generated on its own, so the model "
                                          "only knows the setting if the prompt states it. ✨ Enhance can rewrite it"}]
 
