@@ -322,6 +322,7 @@ class FakeGateway:
         self.lazy_once = False  # like lazy, but calls plan_storyboard when FilmLab reminds it
         self.empty = False  # fail like OpenClaw does when the model's reply comes back empty: always, or N times
         self.more_parts = 0  # plan in parts: after the first part, this many more (each tries replace_drafts)
+        self.empty_next_part = 0  # this many "Part N is saved" requests come back empty (the live failure)
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -362,8 +363,11 @@ class FakeGateway:
         self.requests.append(body)
         if body["_model_header"] == "ollama/broken:cloud":
             return httpx.Response(404, json={"error": {"message": "model not found"}})
-        if self.empty:
-            if type(self.empty) is int:
+        asks_next = re.match(r"part \d+ is saved", body["messages"][0]["content"].lower())
+        if self.empty or (self.empty_next_part and asks_next):
+            if asks_next and self.empty_next_part:
+                self.empty_next_part -= 1
+            elif type(self.empty) is int:
                 self.empty -= 1
             err = {"error": {"message": "internal error", "type": "api_error"}}
             return httpx.Response(200, text=f"data: {json.dumps(err)}\n\n", headers={"content-type": "text/event-stream"})

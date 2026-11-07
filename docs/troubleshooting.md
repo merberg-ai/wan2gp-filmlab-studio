@@ -123,7 +123,7 @@ FilmLab flags a render after 10 minutes without progress but never cancels it: W
 <details>
 <summary><b>"The director's reply came back empty"</b></summary>
 
-The model returned nothing, usually because a request was too big or the conversation got stuck. FilmLab already retries once in a fresh conversation, and plans long films scene by scene. If it keeps happening, press **Start fresh** in the Director panel and try again; for a very long brief, try **Plan more** in parts.
+The model's answer was lost: some models through Ollama now and then write a tool call that never arrives, and a request that's too big or a stuck conversation does the same. FilmLab plans long films scene by scene and recovers once by itself in a fresh conversation: it resends your message if nothing was saved yet, or asks for the rest of the plan if some scenes were. If it keeps happening, press **Plan more** (your saved scenes stay) or **Start fresh** in the Director panel and try again.
 </details>
 
 <details>

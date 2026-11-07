@@ -147,11 +147,15 @@ async def plan(project_id: str, body: PlanIn, request: Request):
     if len(project["brief"].strip()) < 10:
         raise HTTPException(422, "write a brief first (at least a sentence)")
     text = await plan_brief(s, project, replace=body.replace_drafts)
+
+    async def resume() -> str:  # after an empty reply: carry on from the parts already saved, as Plan more does
+        return await plan_brief(s, await live_project(s, project_id), replace=False)
+
     try:
         rounds = (await s.director_settings.get())["plan_rounds"]
         # a plan comes in parts of a scene or two (about three rounds each): room for a long film
         turn = await s.chat.send(project_id, text, max_rounds=max(rounds, 3 * PLAN_PARTS + 2),
-                                 expect=("plan_storyboard", "a plan"), parts=PLAN_PARTS)
+                                 expect=("plan_storyboard", "a plan"), parts=PLAN_PARTS, resume=resume)
     except ChatBusy as exc:
         raise HTTPException(409, str(exc)) from exc
     await s.db.audit(OWNER, "storyboard.plan_request", project_id, {"turn_id": turn, "replace": body.replace_drafts})

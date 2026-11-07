@@ -54,12 +54,14 @@ class DirectorChat:
         return project_id in self._active
 
     async def send(self, project_id: str, text: str, max_rounds: int | None = None,
-                   expect: tuple[str, str] | None = None, parts: int = 0) -> str:
+                   expect: tuple[str, str] | None = None, parts: int = 0, resume=None) -> str:
         """max_rounds: more tool rounds for a turn known to need them (planning a storyboard).
         expect: (tool, what) for a turn that exists to make that tool succeed; if the director ends the turn
         without it succeeding, the chat says plainly that nothing was saved.
         parts: the expected tool may succeed up to this many times (a plan in parts); after each, FilmLab asks for
-        the next part until the director says it's all planned."""
+        the next part until the director says it's all planned.
+        resume: async () -> str, the message that carries on a plan in parts from what is saved (as Plan more does).
+        If the reply comes back empty after some parts were saved, FilmLab sends it once in a fresh conversation."""
         if self.busy(project_id):
             raise ChatBusy("the director is still answering")
         self._active.add(project_id)  # claimed before any await, so concurrent sends cannot both pass
@@ -70,7 +72,7 @@ class DirectorChat:
         except Exception:
             self._active.discard(project_id)
             raise
-        task = asyncio.create_task(self._turn(project_id, turn_id, text, max_rounds, expect, parts))
+        task = asyncio.create_task(self._turn(project_id, turn_id, text, max_rounds, expect, parts, resume))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         task.add_done_callback(lambda _: self._active.discard(project_id))
@@ -78,7 +80,7 @@ class DirectorChat:
         return turn_id
 
     async def _turn(self, project_id: str, turn_id: str, text: str, rounds: int | None,
-                    expect: tuple[str, str] | None = None, parts: int = 0):
+                    expect: tuple[str, str] | None = None, parts: int = 0, resume=None):
         project = await self.db.fetchone("SELECT title FROM projects WHERE id = ?", (project_id,))
         conversation, notes, model = f"filmlab:project:{project_id}", "", None
         try:
@@ -91,7 +93,10 @@ class DirectorChat:
         except Exception:  # noqa: BLE001 - the owner's settings must never stop a turn
             log.exception("director settings unavailable; using defaults")
         rounds = rounds or self.max_rounds
-        messages = [{"role": "user", "content": f"[FilmLab project: {project['title']}]\n{text}{notes}"}]
+        def opening(body: str) -> list[dict]:
+            return [{"role": "user", "content": f"[FilmLab project: {project['title']}]\n{body}{notes}"}]
+
+        messages = opening(text)
 
         async def on_delta(chunk):
             self.bus.publish_ephemeral("chat.delta", {"turn_id": turn_id, "text": chunk}, project_id)
@@ -139,11 +144,26 @@ class DirectorChat:
                 # OpenClaw's answer after the model's reply came back empty twice. Its session then tends to stay
                 # stuck (every later turn comes back empty), so once per turn, when nothing was saved yet, FilmLab
                 # starts a fresh conversation and sends the owner's message again.
-                if parts and self.tools.plan_parts.get(project_id, 0):
+                saved = self.tools.plan_parts.get(project_id, 0) if parts else 0
+                if saved and (recovered or not self.settings or not resume):
                     await self._fail(project_id, turn_id, f"The director's reply came back empty after "
-                                     f"{self.tools.plan_parts[project_id]} part(s) of the plan; those scenes are saved. "
+                                     f"{saved} part(s) of the plan; those scenes are saved. "
                                      "Press Plan more to plan the rest.")
                     return
+                if saved:
+                    # Parts are saved, so resending the owner's message would plan them again: carry on from the
+                    # storyboard as it is now instead, as Plan more does, in a fresh conversation.
+                    recovered, nudged = True, False
+                    await self.settings.new_conversation(project_id)
+                    conversation = await self.settings.conversation(project_id)
+                    msg = (f"The director's reply came back empty after {saved} part(s) of the plan (those scenes are "
+                           "saved), so FilmLab started a fresh director conversation and asked it to plan the rest.")
+                    await self._save(project_id, "note", msg)
+                    await self.bus.publish("chat.message", {"turn_id": turn_id, "role": "note", "content": msg}, project_id)
+                    await self.db.audit("system", "director.fresh_conversation", project_id,
+                                        {"reason": "empty reply", "parts_saved": saved})
+                    messages = opening(await resume())
+                    continue
                 if recovered or not self.settings or succeeded - READ_ONLY:
                     await self._fail(project_id, turn_id, "The director's reply came back empty"
                                      + (", so nothing more was saved" if succeeded - READ_ONLY else ", so nothing was saved")

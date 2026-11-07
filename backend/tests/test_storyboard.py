@@ -466,3 +466,32 @@ def test_a_long_plan_comes_in_parts_and_later_parts_never_replace(make_harness):
     assert chat[-1]["content"].startswith("All planned") and not [m for m in chat if m["role"] == "error"]
     asks = [m for m in h.gateway.requests if m["messages"][0]["content"].startswith("Part ")]
     assert len(asks) == 3 and "“Later scene 1”" in asks[-1]["messages"][0]["content"]
+
+
+def test_an_empty_reply_mid_plan_carries_on_from_the_saved_parts(make_harness):
+    """Live: gemma's tool call for the next part is sometimes dropped (an empty reply) after parts are saved.
+    FilmLab starts a fresh conversation once and asks for the rest, as Plan more does, never re-planning saved parts."""
+    h = make_harness().login()
+    pid = new_project(h)
+    patch(h, f"/api/projects/{pid}", {"brief": "A soldier waits in the trench at dusk, then marches away."})
+    h.gateway.empty_next_part = 1
+    assert h.post(f"/api/projects/{pid}/plan", {"replace_drafts": True}).status_code == 202
+    proj = h.wait_for(lambda: (p := h.project(pid))["scenes"] and not p["director_busy"] and p, what="planned")
+    chat = h.c.get(f"/api/projects/{pid}/chat").json()
+    assert not [m for m in chat if m["role"] == "error"], chat[-1]
+    assert any("asked it to plan the rest" in m["content"] for m in chat if m["role"] == "note")
+    assert len(proj["shots"]) == 6  # part 1 kept, the resumed part added after it (it may not replace)
+    briefs = [r for r in h.gateway.requests if "Plan the storyboard" in (r["messages"][0].get("content") or "")]
+    assert len(briefs) == 2  # the owner's request, then the resume (never the owner's message again)
+    resumed = briefs[-1]
+    assert resumed["user"].endswith(":1") and "Current storyboard:" in resumed["messages"][0]["content"]
+    assert "Don't set replace_drafts" in resumed["messages"][0]["content"]
+    # It retries once per plan: failing again after that ends with the plain error and the saved parts kept.
+    pid2 = new_project(h)
+    patch(h, f"/api/projects/{pid2}", {"brief": "A soldier waits in the trench at dusk, then marches away."})
+    h.gateway.empty_next_part = 2
+    assert h.post(f"/api/projects/{pid2}/plan", {}).status_code == 202
+    h.wait_for(lambda: h.project(pid2)["shots"] and not h.project(pid2)["director_busy"], what="idle")
+    last = h.c.get(f"/api/projects/{pid2}/chat").json()[-1]
+    assert last["role"] == "error" and "after 2 part(s)" in last["content"] and "Plan more" in last["content"], last
+    assert len(h.project(pid2)["shots"]) == 6
