@@ -123,7 +123,11 @@ FilmLab flags a render after 10 minutes without progress but never cancels it: W
 <details>
 <summary><b>"The director's reply came back empty"</b></summary>
 
-The model's answer was lost: some models through Ollama now and then write a tool call that never arrives, and a request that's too big or a stuck conversation does the same. FilmLab plans long films scene by scene and recovers once by itself in a fresh conversation: it resends your message if nothing was saved yet, or asks for the rest of the plan if some scenes were. If it keeps happening, press **Plan more** (your saved scenes stay) or **Start fresh** in the Director panel and try again.
+The model's answer was lost: some models through Ollama write a tool call that never arrives. gemma4:31b-cloud does this with most plan_storyboard calls on some briefs, so the model writes the plan but Ollama drops it. It isn't your usage running out (that's a "Director unavailable" error) and Start fresh doesn't help.
+
+- **When planning:** FilmLab asks the same model for the plan directly as JSON instead, part by part, and saves each part through the same checks. You'll see the note "FilmLab is asking the model for the plan directly instead".
+- **In other turns:** it recovers once in a fresh conversation, by resending your message.
+- **If it keeps happening:** press **Plan more** (your saved scenes stay) or **Start fresh** in the Director panel and try again.
 </details>
 
 <details>

@@ -518,6 +518,35 @@ def test_an_empty_reply_mid_plan_carries_on_from_the_saved_parts(make_harness):
     assert len(h.project(pid2)["shots"]) == 6
 
 
+def test_an_empty_plan_reply_is_planned_directly_as_json(make_harness, settings):
+    """Live (Smells like Anthony): gemma4 writes the whole plan_storyboard call, but Ollama's tool-call parser drops
+    it about 7 times in 10, even in a fresh conversation. Asked for the same plan as JSON it answers reliably, so
+    FilmLab plans the rest that way, part by part, through the same plan_storyboard checks."""
+    settings.openclaw_config.write_text(json.dumps({"agents": {"defaults": {"model": {"primary": "ollama/gemma4:31b-cloud"}}}}))
+    h = make_harness().login()
+    pid = new_project(h)
+    patch(h, f"/api/projects/{pid}", {"brief": "A soldier waits in the trench at dusk, then marches away."})
+    h.gateway.empty = True  # every reply through OpenClaw comes back empty
+    part = lambda title, what: {"all_planned": False, "plan": plan([{"title": title, "time_place": "Dusk, the trench",
+        "shots": [shot(what, f"A soldier {what.lower()} in a muddy trench at dusk", 4)]}])}  # noqa: E731
+    bad = part("Waiting", "Waits")
+    bad["plan"]["scenes"][0]["shots"][0]["prompt"] = "A soldier waits."  # no place, no time: refused, then fixed
+    h.vision.answers = [bad, part("Waiting", "Waits"), part("Leaving", "Marches"),
+                        {"all_planned": True, "summary": "All planned: 2 scenes, 2 shots, 8 s."}]
+    assert h.post(f"/api/projects/{pid}/plan", {}).status_code == 202
+    proj = h.wait_for(lambda: (p := h.project(pid))["scenes"] and not p["director_busy"] and p, what="planned")
+    assert [s["title"] for s in proj["scenes"]] == ["Waiting", "Leaving"] and len(proj["shots"]) == 2
+    chat = h.c.get(f"/api/projects/{pid}/chat").json()
+    assert not [m for m in chat if m["role"] == "error"], chat[-1]
+    assert any("asking the model for the plan directly" in m["content"] for m in chat if m["role"] == "note")
+    assert chat[-1]["role"] == "assistant" and chat[-1]["content"].startswith("All planned")
+    asks = h.vision.requests[-4:]
+    assert all(r["model"] == "gemma4:31b-cloud" and r["format"]["properties"]["plan"] for r in asks)
+    assert "Plan the storyboard" in asks[0]["messages"][1]["content"]
+    assert "wasn't saved" in asks[1]["messages"][-1]["content"] and "Part 2 is saved" in asks[3]["messages"][-1]["content"]
+    assert sum("fresh director conversation" in m["content"] for m in chat) == 0  # straight to the direct plan
+
+
 def test_a_batch_can_wait_for_its_start_time_and_waiting_shots_can_move(make_harness, monkeypatch):
     from datetime import datetime, timedelta, timezone
     import app.batches as batches_mod

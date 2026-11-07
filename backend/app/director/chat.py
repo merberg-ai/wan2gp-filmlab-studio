@@ -9,9 +9,15 @@ import asyncio
 import json
 import logging
 
+import httpx
+
 from ..db import Database, new_id, now
 from ..events import EventBus
-from .gateway import GatewayClient, GatewayError
+from .direct import ASK as DIRECT_ASK
+from .direct import REFUSED as DIRECT_REFUSED
+from .direct import SAVED as DIRECT_SAVED
+from .direct import DirectError, DirectPlanner
+from .gateway import GatewayClient, GatewayError, TurnResult
 from .tools import TOOLS, DirectorTools
 
 log = logging.getLogger("filmlab.director")
@@ -190,6 +196,13 @@ class DirectorChat:
                 if EMPTY_REPLY not in str(exc):
                     await self._fail(project_id, turn_id, f"director unavailable: {exc}")
                     return
+                # A plan's reply that came back empty is usually a plan_storyboard call Ollama's tool-call parser
+                # dropped (gemma4 often), and asking again through OpenClaw mostly fails the same way: ask the model
+                # for the plan as JSON instead (see direct.py).
+                if (expect and expect[0] == "plan_storyboard"
+                        and await self._plan_direct(project_id, turn_id, text, parts, resume, notes, rounds, model,
+                                                    succeeded)):
+                    return
                 # OpenClaw's answer after the model's reply came back empty twice. Its session then tends to stay
                 # stuck (every later turn comes back empty), so once per turn, when nothing was saved yet, FilmLab
                 # starts a fresh conversation and sends the owner's message again.
@@ -231,6 +244,68 @@ class DirectorChat:
                 log.exception("director turn crashed")
                 await self._fail(project_id, turn_id, f"internal error: {type(exc).__name__}")
                 return
+
+    async def _plan_direct(self, project_id, turn_id, text, parts, resume, notes, rounds, model, succeeded) -> bool:
+        """Write the rest of the plan by asking the model on Ollama for each part as JSON, saving each through
+        plan_storyboard as usual. False when the director's model isn't an Ollama model (nothing was done)."""
+        if not self.settings:
+            return False
+        model = model or self.settings.model().get("model")
+        if not model or not str(model).startswith("ollama/"):
+            return False
+        saved = self.tools.plan_parts.get(project_id, 0)
+        msg = ("The director's reply came back empty: the model wrote its plan, but the tool call got lost on the way "
+               "back from Ollama. FilmLab is asking the model for the plan directly instead"
+               + (f", carrying on after the {saved} part(s) already saved." if saved else "."))
+        await self._save(project_id, "note", msg)
+        await self.bus.publish("chat.message", {"turn_id": turn_id, "role": "note", "content": msg}, project_id)
+        await self.db.audit("system", "director.direct_plan", project_id, {"parts_saved": saved, "model": model})
+        planner = DirectPlanner(model, self.settings.ollama_transport)
+        base = await resume() if saved and resume else text
+        prompt, refused = f"{base}{notes}{DIRECT_ASK}", 0
+        for _ in range(rounds):
+            try:
+                answer = await planner.ask(prompt)
+            except (DirectError, httpx.HTTPError) as exc:
+                done = self.tools.plan_parts.get(project_id, 0)
+                await self._fail(project_id, turn_id, f"FilmLab couldn't get the plan from the model directly either "
+                                 f"({exc})" + (f"; the {done} part(s) saved stay. Press Plan more to plan the rest."
+                                               if done else ", so nothing was saved. Try again in a minute."))
+                return True
+            plan = answer.get("plan") if isinstance(answer.get("plan"), dict) else None
+            if answer.get("all_planned") or not plan or not plan.get("scenes"):
+                if not self.tools.plan_parts.get(project_id, 0):
+                    await self._fail(project_id, turn_id, "The model answered without a plan, so nothing was saved. "
+                                                          "Try again.")
+                    return True
+                summary = str(answer.get("summary") or "").strip() or "All planned."
+                await self._save(project_id, "assistant", summary)
+                await self.bus.publish("chat.message", {"turn_id": turn_id, "role": "assistant", "content": summary},
+                                       project_id)
+                return True
+            call = TurnResult("", [{"id": new_id()[:9], "name": "plan_storyboard", "arguments": json.dumps(plan)}])
+            out = json.loads((await self._run_tools(project_id, turn_id, call, succeeded))[-1]["content"])
+            if "error" in out:
+                refused += 1
+                if refused > 2:
+                    done = self.tools.plan_parts.get(project_id, 0)
+                    await self._fail(project_id, turn_id, "The model's plan kept failing FilmLab's checks"
+                                     + (f"; the {done} part(s) saved stay. Press Plan more to plan the rest."
+                                        if done else ", so nothing was saved. Try again."))
+                    return True
+                prompt = DIRECT_REFUSED.format(errors=json.dumps(out.get("errors") or out["error"])[:4000])
+                continue
+            refused = 0
+            await self._progress(project_id)
+            done = self.tools.plan_parts.get(project_id, 0)
+            if parts and done >= parts:
+                await self._fail(project_id, turn_id, f"Planned {done} parts, the most one turn writes; press Plan "
+                                                      "more to plan the rest.")
+                return True
+            scenes = [s["title"] for s in await self.tools.studio.storyboard.scenes(project_id)]
+            prompt = DIRECT_SAVED.format(n=done, scenes="; ".join(f"“{t}”" for t in scenes) or "none")
+        await self._fail(project_id, turn_id, f"stopped after {rounds} rounds")
+        return True
 
     async def fresh(self, project_id: str, actor: str = "owner") -> dict:
         """Start a new director conversation for the project: it forgets the earlier chat; nothing else changes."""
