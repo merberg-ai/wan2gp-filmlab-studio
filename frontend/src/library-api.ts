@@ -1,6 +1,7 @@
 // Typed client for the F3 library, image generation, model settings and shot references.
 
-import { ApiError, csrfHeaders, request, type QueueOwner } from "./api";
+import { request, type QueueOwner } from "./api";
+import { sendFile } from "./uploads";
 
 export type AssetKind = "character" | "location" | "prop" | "style" | "sound";
 export const KINDS: AssetKind[] = ["character", "location", "prop", "style", "sound"];
@@ -115,32 +116,13 @@ export const lib = {
     request<Variant>("PATCH", `/api/library/variants/${id}`, v),
   lock: (id: string, locked: boolean) => request<Variant>("POST", `/api/library/variants/${id}/lock`, { locked }),
   newVersion: (id: string) => request<Variant>("POST", `/api/library/variants/${id}/new-version`),
-  async upload(variantId: string, file: File, meta: FileMeta) {
+  upload(variantId: string, file: File, meta: FileMeta) {
     const q = new URLSearchParams(Object.entries(meta).filter(([, v]) => v) as [string, string][]);
-    const res = await fetch(`/api/library/variants/${variantId}/files?${q}`, {
-      method: "POST", credentials: "same-origin", body: file,
-      headers: { "Content-Type": "application/octet-stream", ...csrfHeaders() },
-    });
-    if (!res.ok) {
-      let detail = res.statusText;
-      try { detail = (await res.json()).detail ?? detail; } catch { /* not JSON */ }
-      throw new ApiError(res.status, `${file.name}: ${detail}`);
-    }
-    return res.json() as Promise<{ file_id: string; deduplicated: boolean; already_attached: boolean }>;
+    return sendFile<{ file_id: string; deduplicated: boolean; already_attached: boolean }>(
+      "POST", `/api/library/variants/${variantId}/files?${q}`, file);
   },
   /** A character's voice sample (WAV, MP3 or FLAC, 2-30 s): its voice in every shot it speaks in. */
-  async setVoice(assetId: string, file: File) {
-    const res = await fetch(`/api/library/assets/${assetId}/voice`, {
-      method: "PUT", credentials: "same-origin", body: file,
-      headers: { "Content-Type": "application/octet-stream", ...csrfHeaders() },
-    });
-    if (!res.ok) {
-      let detail = res.statusText;
-      try { detail = (await res.json()).detail ?? detail; } catch { /* not JSON */ }
-      throw new ApiError(res.status, `${file.name}: ${detail}`);
-    }
-    return res.json() as Promise<AssetDetail>;
-  },
+  setVoice: (assetId: string, file: File) => sendFile<AssetDetail>("PUT", `/api/library/assets/${assetId}/voice`, file),
   clearVoice: (assetId: string) => request<AssetDetail>("DELETE", `/api/library/assets/${assetId}/voice`),
   updateEntry: (id: string, m: FileMeta) => request("PATCH", `/api/library/entries/${id}`, m),
   removeEntry: (id: string) => request("DELETE", `/api/library/entries/${id}`),

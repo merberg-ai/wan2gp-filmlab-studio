@@ -56,8 +56,12 @@ async def inspect_file(path: Path) -> dict:
             raise LibraryError(f"images must be at most {MAX_SIDE} pixels on a side (this one is {w}x{h})")
         return {"kind": "image", "mime": IMAGE_TYPES[video["codec_name"]],
                 "width": video.get("width"), "height": video.get("height"), "duration_s": None}
-    if audio and not video and audio.get("codec_name") in AUDIO_TYPES:
-        return {"kind": "audio", "mime": AUDIO_TYPES[audio["codec_name"]], "width": None, "height": None,
+    codec = (audio or {}).get("codec_name") or ""
+    # WAV holds plain PCM of any sample format: 16/24-bit, but also 32-bit float (what vocal-separation tools write),
+    # 32-bit and 8-bit.
+    wav = codec.startswith("pcm_") and "wav" in (info.get("format", {}).get("format_name") or "")
+    if audio and not video and (codec in AUDIO_TYPES or wav):
+        return {"kind": "audio", "mime": AUDIO_TYPES.get(codec, "audio/wav"), "width": None, "height": None,
                 "duration_s": float(info.get("format", {}).get("duration") or 0) or None}
     raise LibraryError("only PNG, JPEG or WebP images and WAV, MP3 or FLAC audio are accepted")
 

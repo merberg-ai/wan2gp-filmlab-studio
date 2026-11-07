@@ -69,6 +69,17 @@ def test_upload_dedupes_and_rejects_non_images(make_harness, images):
     assert [f["caption"] for f in files] == ["front"] and files[0]["source"] == "upload"
 
 
+@pytest.mark.parametrize("fmt", ["pcm_s16le", "pcm_s24le", "pcm_f32le", "pcm_s32le", "pcm_u8"])
+def test_wav_voice_samples_of_any_pcm_format_upload(make_harness, fmt):
+    """Live: a vocal clip from a separation tool (32-bit float WAV) was refused as 'not WAV'."""
+    wav = subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=2", "-c:a", fmt,
+                          "-f", "wav", "-"], capture_output=True, check=True).stdout
+    h = make_harness().login()
+    out = upload(h, default_variant(asset(h)), wav)
+    f = h.c.get(f"/api/library/files/{out['file_id']}")
+    assert f.status_code == 200 and f.headers["content-type"] == "audio/wav", fmt
+
+
 def test_library_needs_owner(make_harness):
     h = make_harness()
     assert h.c.get("/api/library").status_code == 401

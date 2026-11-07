@@ -13,6 +13,7 @@ import { ProjectView } from "./ProjectView";
 import { Projects } from "./Projects";
 import { alertOwner, dismissToast, setNotify, showToast, useNotifyState, useToasts } from "./notify";
 import { CommandPalette } from "./Palette";
+import { useUploads } from "./uploads";
 
 // Hash routes: #/ (projects) and #/p/<id> (project workspace).
 function useRoute() {
@@ -99,6 +100,7 @@ function Studio({ onLogout }: { onLogout: () => void }) {
         <button className="ghost" onClick={() => api.logout().finally(onLogout)}>Sign out</button>
       </header>
       <Toasts />
+      <UploadProgress />
       <CommandPalette route={route} />
       {route.page === "project" ? <ProjectView key={route.id} projectId={route.id} tab={route.tab} subscribe={subscribe} />
         : route.page === "library" ? <LibraryPage assetId={route.id} creationId={route.creation} subscribe={subscribe} />
@@ -159,6 +161,28 @@ function NotifyToggle() {
         strokeLinecap="round" strokeLinejoin="round" d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16zM10 20a2 2 0 0 0 4 0" />
         {state !== "on" && <path stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" d="M4 4l16 16" />}</svg>
     </button>
+  );
+}
+
+function UploadProgress() {
+  const list = useUploads();
+  if (!list.length) return null;
+  const size = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+  return (
+    <div className="uploads" role="status" aria-live="polite">
+      {list.map((u) => {
+        const pct = u.total ? Math.min(100, Math.round((u.loaded / u.total) * 100)) : 0;
+        const sent = u.total > 0 && u.loaded >= u.total;
+        return (
+          <div key={u.id} className="upload">
+            <div className="row"><span className="grow upload-name" title={u.name}>{u.name}</span>
+              <span className="muted">{sent ? "Checking…" : `${pct}% · ${size(u.loaded)} of ${size(u.total)}`}</span></div>
+            <div className={`upload-bar ${sent ? "checking" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={100}
+              aria-valuenow={pct} aria-label={`Uploading ${u.name}`}><i style={{ width: `${pct}%` }} /></div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

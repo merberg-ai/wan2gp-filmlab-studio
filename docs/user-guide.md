@@ -54,7 +54,7 @@ The Library holds everything your films reuse: **characters, locations, props, s
 
 - **Looks:** an asset can have several looks (e.g. *default*, *night*, *wounded*), each with **versions**. Lock a look to freeze it: shots that use it keep using exactly those images.
 - **Images:** upload PNG, JPEG or WebP references, or generate them with WanGP from a look's **Generate** panel (from text, or from your existing images to keep identity). Generated **candidates** wait for you to **Keep** or **Discard** them.
-- **Voices:** a character can have a **Voice** sample: 5–15 seconds of one person speaking clearly (WAV, MP3 or FLAC). Whenever that character has a line, FilmLab uses it as their voice.
+- **Voices:** a character can have a **Voice** sample: 5–15 seconds of one person speaking clearly (WAV of any bit depth, MP3 or FLAC). Uploads show their progress in the bottom-left corner. Whenever that character has a line, FilmLab uses it as their voice.
 - **Director requests:** when the director needs an image the Library lacks, its request appears on the asset for you to **Generate** or **Reject**.
 
 Use the names you give assets in your briefs (e.g. `Anthony_science`, `Jim_lab`). The director matches them.
