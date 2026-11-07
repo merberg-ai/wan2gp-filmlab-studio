@@ -79,6 +79,7 @@ function Studio({ onLogout }: { onLogout: () => void }) {
     <div className="shell">
       <header className="topbar">
         <a className="brand" href="#/">FilmLab <span>Studio</span></a>
+        {health?.version && <span className="version muted" title="FilmLab version">v{health.version}</span>}
         <nav className="nav">
           <a href="#/" className={route.page === "projects" || route.page === "project" ? "on" : ""}>Projects</a>
           <a href="#/library" className={route.page === "library" ? "on" : ""}>Library</a>
@@ -113,7 +114,8 @@ function Studio({ onLogout }: { onLogout: () => void }) {
 }
 
 function Dot({ ok, label, title }: { ok: boolean | null; label: string; title?: string }) {
-  return <span className="status-item" title={title}><i className={`dot ${ok === null ? "warn" : ok ? "ok" : "bad"}`} />{label}</span>;
+  return <span className="status-item" title={title ?? label}><i className={`dot ${ok === null ? "warn" : ok ? "ok" : "bad"}`} />
+    <span className="status-text">{label}</span></span>;
 }
 
 function StatusBar({ health, stream }: { health: Health | null; stream: StreamState }) {
@@ -122,9 +124,9 @@ function StatusBar({ health, stream }: { health: Health | null; stream: StreamSt
     : ` · queue ${w.queue_total} (${w.queue_filmlab ?? 0} FilmLab / ${w.queue_other ?? 0} other), ${w.queue_running ?? 0} running`;
   return (
     <div className="statusbar" aria-live="polite">
-      <Dot ok={stream === "live" ? true : stream === "offline" ? false : null} label={`Events ${stream}`} />
-      <Dot ok={health ? health.director.connected : null} label="Director" />
-      <Dot ok={w ? w.connected : null} label={`WanGP${queue}`} title={w?.error} />
+      {/* Only when the live updates are down: the page then stops changing by itself, which is worth knowing. */}
+      {stream !== "live" && <Dot ok={stream === "offline" ? false : null} label={`Events ${stream}`} />}
+      <Dot ok={w ? w.connected : null} label={`WanGP${queue}`} title={w?.error ? `WanGP${queue}: ${w.error}` : undefined} />
     </div>
   );
 }
