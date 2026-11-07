@@ -829,3 +829,21 @@ kbd { font: 11px/1 ui-monospace, monospace; padding: 2px 5px; border-radius: 4px
 .an-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .an-cell.on { border-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { .rm-stage { transition: none; } }
+
+/* Desktop project workspace: a one-row header, the timeline in its own card above the panels, and the panels filling
+   the rest of the window (each scrolls inside). Narrower screens and phones keep their own layout. */
+@media (min-width: 1101px) {
+  .workspace.resizable { grid-template-rows: auto auto minmax(0, 1fr); row-gap: 8px; padding-top: 8px; }
+  .workspace.resizable > .ws-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+  .workspace.resizable > .ws-head h1 { font-size: 18px; margin: 0; white-space: nowrap; }
+  .workspace.resizable > .ws-head .tabs { margin: 0; }
+  .workspace.resizable > .ws-head .logline { flex: 1 1 0; min-width: 0; margin: 0; font-size: 13px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .workspace.resizable > .ws-head .project-summary { margin-top: 0; }
+  .workspace.resizable > .ws-head .layout-controls { margin-top: 0; flex-wrap: nowrap; }
+  .workspace.resizable > .ws-head .layout-controls select { width: auto; }
+  .workspace.resizable > .ws-head > .error { flex-basis: 100%; }
+  .timeline-card { grid-column: 1 / -1; padding: 8px 12px; overflow: visible; }
+  .timeline-card > :first-child { margin-top: 0; }
+  .timeline-card > :last-child { margin-bottom: 0; }
+}

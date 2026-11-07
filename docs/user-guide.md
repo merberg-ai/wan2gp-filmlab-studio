@@ -28,7 +28,7 @@ How to make a film with FilmLab Studio, screen by screen.
 
 Everything updates live: progress, new takes and the director's replies appear without reloading. A toast tells you when a render finishes; with 🔔 on, you also get a system notification when FilmLab isn't on screen.
 
-On a wide screen the project's three panels (Storyboard, Director, Renders) can be **resized** by dragging the bars between them (double-click one to reset). **Panels:** in the project header hides or shows each one (a hidden panel is a thin bar you click to bring back), **Focus…** shows one panel only, and **Reset** brings back the default. Your layout is remembered in this browser. Phones show one panel at a time, on tabs.
+On a wide screen the project's header is one compact row, the **timeline** (length meter and film strip) sits in its own card above the panels so it's always in view, and the three panels (Storyboard, Director, Renders) fill the rest of the window and scroll inside. They can be **resized** by dragging the bars between them (double-click one to reset). **Panels:** in the project header hides or shows each one (a hidden panel is a thin bar you click to bring back), **Focus…** shows one panel only, and **Reset** brings back the default. Your layout is remembered in this browser. Phones show one panel at a time, on tabs.
 
 ## Projects
 

@@ -62,7 +62,7 @@ export function useLayout() {
   const cols = PANELS.map((p, i) => (layout.hidden.includes(p) ? "40px" : `minmax(240px, ${layout.widths[i]}fr)`));
   const template = `${cols[0]} 10px ${cols[1]} 10px ${cols[2]}`;
   // hiding is for wide screens only: a phone shows each panel on its own tab
-  return { layout, template, toggle, focus, reset, drag, hidden: (p: PanelName) => wide && layout.hidden.includes(p) };
+  return { layout, template, toggle, focus, reset, drag, wide, hidden: (p: PanelName) => wide && layout.hidden.includes(p) };
 }
 
 /** A hidden panel's rail: its name, and a click shows it again. */

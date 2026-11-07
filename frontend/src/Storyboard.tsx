@@ -16,9 +16,27 @@ type Act = (fn: () => Promise<unknown>) => Promise<void>;
 const UNSORTED = "unsorted";
 
 /** The project's shots grouped by scene, in film order: plan, edit, reorder, lock and render as a batch. */
-export function Storyboard({ project, templates, selected, onSelect, act }: {
+/** The film at a glance: length against the target, and every shot as a frame in film order. On a wide screen it is
+ *  its own card above the panels (always in view); narrower screens keep it at the top of the storyboard. */
+export function Timeline({ project, selected, onSelect, act }: {
+  project: ProjectDetail; selected: string | null; onSelect: (id: string | null) => void; act: Act;
+}) {
+  const sceneIds = new Set(project.scenes.map((s) => s.id));
+  const groups = [
+    ...project.scenes.map((sc) => ({ key: sc.id, title: sc.title, shots: project.shots.filter((s) => s.scene_id === sc.id) })),
+    { key: UNSORTED, title: "Unsorted", shots: project.shots.filter((s) => !s.scene_id || !sceneIds.has(s.scene_id)) },
+  ];
+  const total = project.shots.reduce((n, s) => n + (s.frames - 1) / 24, 0);
+  return <>
+    <LengthMeter total={total} target={project.target_seconds} scenes={groups.filter((g) => g.shots.length).map((g) => ({
+      key: g.key, title: g.title, seconds: g.shots.reduce((n, s) => n + (s.frames - 1) / 24, 0) }))} />
+    <FilmStrip project={project} selected={selected} onSelect={onSelect} act={act} />
+  </>;
+}
+
+export function Storyboard({ project, templates, selected, onSelect, act, timeline = true }: {
   project: ProjectDetail; templates: Template[]; selected: string | null;
-  onSelect: (id: string | null) => void; act: Act;
+  onSelect: (id: string | null) => void; act: Act; timeline?: boolean;
 }) {
   const [adding, setAdding] = useState<string | null>(null);  // scene id, UNSORTED, or null (closed)
   const [review, setReview] = useState<{ preselect?: string[]; requestId?: string } | null>(null);
@@ -128,11 +146,9 @@ export function Storyboard({ project, templates, selected, onSelect, act }: {
         <button className="primary" disabled={!project.shots.length || !!(project.batch && ["running", "paused"].includes(project.batch.status))}
           onClick={() => setReview({})}>Render storyboard…</button>
       </div>
-      <LengthMeter total={total} target={project.target_seconds} scenes={groups.filter((g) => g.shots.length).map((g) => ({
-        key: g.key, title: g.scene?.title ?? "Unsorted", seconds: g.shots.reduce((n, s) => n + (s.frames - 1) / 24, 0) }))} />
+      {timeline && <Timeline project={project} selected={selected} onSelect={onSelect} act={act} />}
       {project.director_busy && project.planning && <PlanProgress project={project} act={act} />}
       {animatic && <Animatic project={project} onClose={() => setAnimatic(false)} />}
-      <FilmStrip project={project} selected={selected} onSelect={onSelect} act={act} />
       <BriefPanel project={project} act={act} />
       {project.batch_requests.map((r) => (
         <div key={r.id} className="card approval row">

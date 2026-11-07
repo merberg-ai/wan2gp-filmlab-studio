@@ -11,7 +11,7 @@ import { ask, dialogOpen } from "./Dialog";
 import { Markdown } from "./Markdown";
 import { LiveActivity, type Step, StepsDone } from "./DirectorActivity";
 import { ACTIVE_JOB } from "./Shots";
-import { Storyboard } from "./Storyboard";
+import { Timeline, Storyboard } from "./Storyboard";
 import { usedTake } from "./FilmStrip";
 import { etaText, useNow } from "./eta";
 import { SELECT_SHOT } from "./Palette";
@@ -118,7 +118,7 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
           <a href={`#/p/${project.id}/edit`} className={tab === "edit" ? "on" : ""}>Edit &amp; export</a>
           <a href={`#/p/${project.id}/sheet`}>Contact sheet</a>
         </nav>
-        {project.logline && <p className="muted">{project.logline}</p>}
+        {project.logline && <p className="muted logline" title={project.logline}>{project.logline}</p>}
         <ProjectSettings project={project} act={act} />
         {tab !== "edit" && (
           <div className="layout-controls small" role="group" aria-label="Panels">
@@ -146,8 +146,14 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
         </nav>
       )}
       {tab === "edit" ? <EditView project={project} subscribe={subscribe} /> : <>
+        {lay.wide && (
+          <section className="panel timeline-card" aria-label="Timeline">
+            <Timeline project={project} selected={selectedShot} onSelect={(id) => { setSelectedShot(id); setSelectedTake(null); }} act={act} />
+          </section>
+        )}
         {lay.hidden("storyboard") ? <PanelRail name="storyboard" onShow={() => lay.toggle("storyboard")} />
-          : <Storyboard project={project} templates={templates} selected={selectedShot} onSelect={(id) => { setSelectedShot(id); setSelectedTake(null); }} act={act} />}
+          : <Storyboard project={project} templates={templates} selected={selectedShot} timeline={!lay.wide}
+            onSelect={(id) => { setSelectedShot(id); setSelectedTake(null); }} act={act} />}
         <div className="col-handle" role="separator" aria-orientation="vertical" aria-label="Resize the storyboard and director panels"
           onPointerDown={(e) => lay.drag(0, e)} onDoubleClick={lay.reset} />
         {lay.hidden("director") ? <PanelRail name="director" onShow={() => lay.toggle("director")} />
