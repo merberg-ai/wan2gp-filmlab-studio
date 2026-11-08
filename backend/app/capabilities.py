@@ -18,12 +18,16 @@ from .wangp.client import WanGPClient, WanGPError
 
 log = logging.getLogger("filmlab.capabilities")
 
-TASKS = ("gen_video", "gen_video_with_refs", "gen_image", "edit_image", "gen_speech_from_description", "gen_song")
+TASKS = ("gen_video", "gen_video_with_refs", "gen_image", "edit_image", "gen_speech_from_description", "gen_song",
+         "gen_video_with_speech")
 VIDEO_TASKS = ("gen_video", "gen_video_with_refs")
 IMAGE_TASKS = ("gen_image", "edit_image")
 VOICE_TASKS = ("gen_speech_from_description",)  # a voice designed from a description (the Creator)
 MUSIC_TASKS = ("gen_song",)
 AUDIO_TASKS = VOICE_TASKS + MUSIC_TASKS
+# Video driven by an existing audio track (a music video's song, slice by slice): the mouth follows the audio.
+SPEECH_VIDEO_TASKS = ("gen_video_with_speech",)
+OPTIONAL_TASKS = AUDIO_TASKS + SPEECH_VIDEO_TASKS  # an older WanGP without them: the rest still works
 # FilmLab's tested defaults plus WanGP's own image defaults; each can be changed in Settings.
 DEFAULTS = {
     "video_refs": "MiniMax H3 Ref2VA Pruned PDD 8 Steps",
@@ -37,6 +41,9 @@ DEFAULTS = {
 SETTING_KINDS = {"video_refs": VIDEO_TASKS, "video_plain": ("gen_video",), "image_text": ("gen_image",),
                  "image_refs": IMAGE_TASKS, "voice_design": VOICE_TASKS, "music": MUSIC_TASKS}
 VALIDATE_CONCURRENCY = 4
+# Bumped when the matrix gains tasks or fields: a matrix saved by an older FilmLab is rebuilt on first use
+# (2: the song-driven video models, gen_video_with_speech).
+MATRIX_VERSION = 2
 
 
 class CapabilityError(ValueError):
@@ -104,14 +111,15 @@ class Capabilities:
 
     async def matrix(self, refresh: bool = False) -> list[dict]:
         cached = await self.db.kv_get("capabilities.matrix")
-        if cached and not refresh:
+        if cached and not refresh and cached.get("version") == MATRIX_VERSION:
             return cached["templates"]
         async with self._lock:
             cached = await self.db.kv_get("capabilities.matrix")
-            if cached and not refresh:
+            if cached and not refresh and cached.get("version") == MATRIX_VERSION:
                 return cached["templates"]
             templates = await self._build()
-            await self.db.kv_set("capabilities.matrix", {"built_at": now(), "templates": templates})
+            await self.db.kv_set("capabilities.matrix", {"built_at": now(), "templates": templates,
+                                                         "version": MATRIX_VERSION})
             return templates
 
     async def built_at(self) -> str | None:
@@ -125,6 +133,14 @@ class Capabilities:
                        str(self.probe_path))
         return await self.uploader(self.probe_path, await asyncio.to_thread(sha256_file, self.probe_path), "image/png")
 
+    async def _probe_audio(self) -> str:
+        path = self.probe_path.with_name("probe-audio.wav")
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            await _run("ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=3", "-ac", "2",
+                       "-ar", "44100", str(path))
+        return await self.uploader(path, await asyncio.to_thread(sha256_file, path), "audio/wav")
+
     async def _build(self) -> list[dict]:
         probe = await self._probe_ref()
         rows = []
@@ -132,7 +148,7 @@ class Capabilities:
             try:
                 listing = await self.wangp.call("wangp_templates", {"task": task})
             except WanGPError:
-                if task in AUDIO_TASKS:  # an older WanGP without audio models: the rest still works
+                if task in OPTIONAL_TASKS:
                     continue
                 raise
             for t in listing.get("templates", []):
@@ -158,6 +174,11 @@ class Capabilities:
                         settings["duration_seconds"] = 8
                     if row["requires_refs"] or (row["task"] == "edit_image" and row["refs"] != "none"):
                         settings["image_refs"] = [probe]
+                    if row["task"] in SPEECH_VIDEO_TASKS:  # driven by audio: give it a short probe track
+                        settings["video_length"] = 17
+                        settings["audio_guide"] = await self._probe_audio()
+                        if row["refs"] != "none":
+                            settings["image_refs"] = [probe]
                     res = await self.wangp.call("wangp_validate", {"settings": settings})
                     task = (res.get("tasks") or [{}])[0]
                     diags = [d for d in res.get("diagnostics", []) if "multiples of" not in d.get("message", "")]

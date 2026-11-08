@@ -24,6 +24,8 @@ from .db import Database, new_id, now
 from .events import EventBus
 from . import sound
 from .media import probe, sha256_file, thumbnail
+from .music_video import LIPSYNC_WORDING
+from .wangp.webui import downloading
 from .wangp import errors
 from .wangp.client import WanGPClient, WanGPError
 
@@ -105,6 +107,7 @@ class UnknownTemplate(RenderError, ValueError):
 class RenderService:
     """Video renders of shots. ImageJobs (images.py) reuses this lifecycle for reference images."""
     TABLE = "render_jobs"
+    webui = None  # WanGPWebUI, set by Studio: the model-download progress
     EVENT = "render"
     GALLERY_TYPE = "video"
 
@@ -171,6 +174,8 @@ class RenderService:
         return match
 
     async def build_settings(self, shot: dict, refs: list[dict] | None = None) -> dict:
+        if shot.get("_song"):
+            return await self._song_settings(shot, refs or [])
         tpl = await self.resolve_template(shot["template"])
         full = await self.wangp.call("wangp_templates", {"task": tpl.get("task", "gen_video"), "template": tpl["template"]})
         settings = dict(full.get("settings") or {})
@@ -187,6 +192,24 @@ class RenderService:
                                       shot.get("idea") or shot.get("title") or "")
         elif sound_fields is not None and tpl.get("has_audio"):
             settings["prompt"] = sound.plain_prompt(shot["prompt"], sound_fields)
+        return settings
+
+    async def _song_settings(self, shot: dict, refs: list[dict]) -> dict:
+        """A lip-sync music video shot: the song-driven template, its slice of the song as the soundtrack the video
+        follows (audio_guide; the template's own audio_prompt_type says how), and a prompt that asks for synchronized
+        singing without writing the words (written words make the model voice its own)."""
+        song = shot["_song"]
+        tpl = song["template"]
+        full = await self.wangp.call("wangp_templates", {"task": tpl["task"], "template": tpl["template"]})
+        settings = dict(full.get("settings") or {})
+        prompt = shot["prompt"].strip()
+        if "lip" not in prompt.lower():
+            prompt = f"{prompt.rstrip('.')}. The performer is {LIPSYNC_WORDING}."
+        settings.update({"model_type": tpl["model_type"], "prompt": prompt, "resolution": shot["resolution"],
+                         "video_length": shot["frames"], "seed": shot["seed"], "audio_guide": song["wangp_media_id"]})
+        if refs and song.get("refs") != "none":
+            ids = [r["wangp_media_id"] for r in refs]
+            settings["image_refs"] = ids[:1] if song.get("refs") == "single" else ids
         return settings
 
     # Wired by Studio: shot -> (effective template, uploaded refs, blocking issues). Defaults keep tests of
@@ -324,7 +347,19 @@ class RenderService:
                     view = queue_view(await self.wangp.session("list_queue"), prefix, self.wangp.agent_context)
                     ahead, running_owner = view["ahead"], view["running"]
                 last = now() if moved or not job["last_progress_at"] else job["last_progress_at"]
-                stalled = int(bool(prog.get("phase")) and not moved and _age_s(last) > STALL_S)
+                # WanGP's own status line: while it downloads a model's files the steps don't move, which isn't a stall
+                text = str(prog.get("status") or "").strip()[:200] or None
+                fetching = downloading(text)
+                if fetching:
+                    last = now()  # the stall clock starts once the files are in
+                stalled = int(bool(prog.get("phase")) and not moved and not fetching and _age_s(last) > STALL_S)
+                extra = {}
+                if self.TABLE == "render_jobs" and text != job.get("status_text"):
+                    await self.db.execute("UPDATE render_jobs SET status_text = ? WHERE id = ?", (text, job_id))
+                    moved = True  # the cockpit shows the new line
+                if fetching and self.webui:
+                    extra["download"] = await self.webui.download_progress(job_id)
+                    moved = True  # so much so far: every poll is news
                 if stalled and not job["stalled"]:
                     log.warning("job %s: no progress from WanGP for %ss", job_id, STALL_S)
                     await self.db.audit("system", "render.stalled", job_id, {"phase": step[0], "step": step[1]})
@@ -341,7 +376,8 @@ class RenderService:
                         (*fields, last, new, now(), job_id))
                     if new == "running" and job["status"] != "running":
                         await self._set_shot_by_job(job_id, "rendering")
-                    await self._emit(job_id, "render.stalled" if stalled and not job["stalled"] else "render.progress")
+                    await self._emit(job_id, "render.stalled" if stalled and not job["stalled"] else "render.progress",
+                                     **extra)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # network blips etc.: keep the job, retry following later
@@ -547,7 +583,7 @@ class RenderService:
                    "recovered": bool(job["recovered"]), "error": job["error"],
                    "error_info": errors.describe(job["error_code"]), "queue_ahead": job["queue_ahead"],
                    "queue_running": job["queue_running"], "stalled": bool(job["stalled"]),
-                   "preview": bool(job.get("preview")), **extra}
+                   "preview": bool(job.get("preview")), "status_text": job.get("status_text"), **extra}
         if type_.endswith((".done", ".ended")):  # names for the cockpit's "render finished" notification
             names = await self.db.fetchone("SELECT s.title AS shot_title, s.position AS shot_position, p.title AS project_title "
                                            "FROM shots s JOIN projects p ON p.id = s.project_id WHERE s.id = ?", (job["shot_id"],))

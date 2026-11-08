@@ -130,6 +130,19 @@ A shot card shows its prompt, its **sound** summary, its references, and the dir
 
 **Transitions:** cut, dissolve, fade through black or white, wipes, slides, circle open/close, clock wipe, zoom, blur, pixelate and squeeze. They render in exports; the in-browser preview shows them as a fade.
 
+## Music videos
+
+Start a project from the **Music video** preset and its setup opens by itself; the **🎵** chip in the project header opens it again. One song plays from start to end under the whole film, so a cut never restarts the music.
+
+1. **The song.** Generate it from the exact lyrics (with `[Verse]` / `[Chorus]` markers) and a style (genre, mood, instruments, voice), then **Use this** on the candidate you like; or upload a finished track; or pick a Sound from the Library. The film's target length becomes the song's length, and the song becomes the edit's soundtrack.
+2. **How the shots follow it:**
+   - **Lip-sync to the song.** Each shot is made by a song-driven model from its own slice of the song (where the shot starts in the film, for as long as it lasts), and the performer sings exactly that part. The suggested model keeps the performers' look from their pictures; models marked **Not downloaded** are downloaded by WanGP the first time they render in the project (often several GB). Mouths may not match every syllable.
+   - **Picture with one soundtrack.** Shots are made with your usual models and the song plays over them. Faster and works with any model, but mouths only roughly match.
+
+**Plan with director** then plans the shots back to back to cover the song, each quoting the lyric lines sung during it. In the edit, the preview, the animatic and the export, the shots' own sound is muted under the song.
+
+While WanGP downloads a model for a render, the render says so with how much has arrived and how fast, and **Watch in WanGP ↗** opens WanGP's own page with the exact progress. FilmLab finds that page by itself; set `FILMLAB_WANGP_WEBUI` (its address) or `FILMLAB_WANGP_CKPTS` (WanGP's model folder) if it can't.
+
 ## Sound, dialogue and voices
 
 FilmLab's video models make the picture **and** the sound together. Every shot has a **Sound** section:

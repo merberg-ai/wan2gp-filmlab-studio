@@ -33,6 +33,35 @@ async def storyboard_summary(s, project_id: str) -> list[str]:
     return lines
 
 
+async def music_video_rules(s, project: dict) -> list[str]:
+    """A music video's song, lyrics and method, in place of the sound rule: shots cover the song back to back."""
+    mode = project.get("music_mode")
+    if not mode:
+        return []
+    song = project.get("song_file_id") and await s.db.fetchone("SELECT duration_s FROM library_files WHERE id = ?",
+                                                               (project["song_file_id"],))
+    length = f"{song['duration_s']:.1f} s" if song and song["duration_s"] else "not chosen yet (plan to the target length)"
+    lyrics = (project.get("lyrics") or "").strip()
+    rules = [
+        f"This is a music video. One song plays from start to end under the whole film; its length is {length}.",
+        *(["The lyrics, in order (sung exactly like this):", lyrics] if lyrics else ["The song has no lyrics."]),
+        "Plan the shots back to back in film order so they cover the song exactly once: their lengths add up to the "
+        "song's length, and every transition is a cut. A shot's idea quotes the lyric line(s) sung during it, in order, "
+        "so each shot lasts as long as its lines; the next shot carries on where it ends.",
+    ]
+    if mode == "lipsync":
+        rules.append(
+            "Each shot is rendered from its own slice of the song, and the performer's mouth follows it. When the "
+            "performer sings on screen, keep their face clearly visible and say in the prompt that they are singing "
+            "with natural lip movements synchronized to the music. Never write the lyrics or any spoken words in the "
+            "prompt (the model would voice its own). Sound: lines [] and no ambience; the song is the sound.")
+    else:
+        rules.append("Shots are picture only and the song is laid over them. Sound: lines [] and no ambience; "
+                     "the song is the sound. Show singing where the lyrics are sung, but never write the words in the "
+                     "prompt.")
+    return rules
+
+
 async def plan_brief(s, project: dict, replace: bool) -> str:
     cfg = await s.caps.settings()
     with_refs = project["video_refs_template"] or cfg["video_refs"]
@@ -62,7 +91,7 @@ async def plan_brief(s, project: dict, replace: bool) -> str:
         "<Picture 0>), places each character in the frame with an action and a few words on their look, and adds "
         "camera, light and mood.",
         SETTING_RULE.replace("this one prompt", "one shot's prompt"),
-        SOUND_RULE,
+        *(await music_video_rules(s, project) or [SOUND_RULE]),
         "If plan_storyboard returns errors, nothing of that part was written: fix exactly those and call it again.",
         ("Set replace_drafts: true in the FIRST part only. Your plan replaces the unlocked draft shots without takes; "
          "locked, approved and rendered shots stay as they are (the tool lists them). To add shots to an existing "

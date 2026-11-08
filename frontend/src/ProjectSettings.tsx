@@ -3,6 +3,7 @@ import { ask, dialogOpen, trapTab, useModalFrame } from "./Dialog";
 import { api, type ProjectDetail } from "./api";
 import { type Capability, lib, templateLabel } from "./library-api";
 import { AUTONOMY } from "./Autonomy";
+import { MusicVideoSetupModal, setupDismissed } from "./MusicVideo";
 
 type Act = (fn: () => Promise<unknown>) => Promise<void>;
 type Section = "basics" | "shots" | "models" | "director" | "danger";
@@ -16,6 +17,12 @@ const short = (t: string) => t.replace(/\.json$/, "");
 /** The project header's settings: a gear button and chips that summarise them; each opens the settings modal. */
 export function ProjectSettings({ project, act }: { project: ProjectDetail; act: Act }) {
   const [open, setOpen] = useState<Section | null>(null);
+  // A new music-video project opens its setup by itself (until it's set up or put off with "Not now").
+  const [music, setMusic] = useState(false);
+  const musical = project.template === "music_video" || !!project.music_mode;
+  useEffect(() => {
+    if (project.template === "music_video" && !project.music_mode && !setupDismissed(project.id)) setMusic(true);
+  }, [project.id]);  // eslint-disable-line react-hooks/exhaustive-deps
   const models = [project.video_refs_template, project.video_plain_template].filter(Boolean) as string[];
   const chip = (section: Section, label: string, text: string) => (
     <button type="button" className="chip setting-chip" title={`${label}: ${text}`} onClick={() => setOpen(section)}>{text}</button>
@@ -28,6 +35,10 @@ export function ProjectSettings({ project, act }: { project: ProjectDetail; act:
       {chip("shots", "New shots", `${project.default_resolution} · ${secsFor(project.default_frames)} s`)}
       {chip("director", "Director autonomy", project.autonomy ?? "A2")}
       {chip("models", "Video models", models.length ? models.map(short).join(" / ") : "studio models")}
+      {musical && <button type="button" className="chip setting-chip" title="Music video: the song and how the shots follow it"
+        onClick={() => setMusic(true)}>🎵 {project.music_mode === "lipsync" ? "Lip-sync" : project.music_mode === "soundtrack"
+          ? "Soundtrack" : "Set up the song"}</button>}
+      {music && <MusicVideoSetupModal project={project} onClose={() => setMusic(false)} onSaved={() => act(async () => undefined)} />}
       {open && <SettingsModal project={project} act={act} section={open} onClose={() => setOpen(null)} />}
     </div>
   );

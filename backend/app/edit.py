@@ -226,6 +226,9 @@ class Edit:
         order = await self.storyboard.order(project_id)
         texts = doc["texts"]
         segments, issues, previews = [], [], []
+        # A music video: the song plays under the whole film, so every shot's own sound is muted (a cut never
+        # restarts the music).
+        song_only = bool(project.get("music_mode") and project.get("song_file_id"))
 
         def titles_at(key):
             for t in texts:
@@ -257,7 +260,8 @@ class Edit:
                 "src": {"width": take["width"], "height": take["height"], "fps": take["fps"], "frames": frames,
                         "has_audio": bool(take["has_audio"])},
                 "in": cin, "out": cout, "frames": max(cout - cin, 1), "gain_db": c.get("gain_db", 0.0),
-                "mute": bool(c.get("mute")), "transition": shot["transition"] or "cut", "preview": bool(take["preview"]),
+                "mute": bool(c.get("mute")) or song_only, "transition": shot["transition"] or "cut",
+                "preview": bool(take["preview"]),
                 "transition_s": c.get("transition_s", doc["settings"]["transition_s"])})
         titles_at("end")
         if previews:
@@ -282,7 +286,7 @@ class Edit:
             if cap["start_s"] >= total:
                 issues.append(f"caption “{cap['text'][:30]}” starts after the end of the film ({total:.1f} s)")
         return {"project_id": project_id, "fps": fps, "width": w, "height": h, "segments": segments,
-                "total_s": total, "doc": doc, "issues": issues}
+                "total_s": total, "doc": doc, "issues": issues, "song_only": song_only}
 
     async def _changed(self, project_id: str):
         await self.bus.publish("edit.updated", {}, project_id)

@@ -1,6 +1,7 @@
 import { type FormEvent, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  api, type ChatMessage, type Job, type ProjectDetail, type Shot, type Take, type Template,
+  api, type ChatMessage, type DownloadProgress, isDownloading, type Job, type ProjectDetail, type Shot, type Take,
+  type Template,
 } from "./api";
 import type { Listener } from "./App";
 import { EditView } from "./EditView";
@@ -15,6 +16,7 @@ import { Timeline, Storyboard } from "./Storyboard";
 import { usedTake } from "./FilmStrip";
 import { etaText, useNow } from "./eta";
 import { SELECT_SHOT } from "./Palette";
+import { DownloadNote } from "./WanGPLink";
 import { PANEL_LABEL, PANELS, type PanelName, PanelRail, useLayout } from "./layout";
 import { ReviewMode } from "./Review";
 
@@ -39,6 +41,7 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [live, setLive] = useState<Turn | null>(null);
+  const [downloads, setDownloads] = useState<Record<string, DownloadProgress>>({});
   const [templates, setTemplates] = useState<Template[]>([]);
   const [pane, setPane] = useState<"storyboard" | "director" | "renders">("storyboard");  // phones show one panel at a time
   const [selectedShot, setSelectedShot] = useState<string | null>(null);
@@ -85,6 +88,10 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
     }
     if (e.type === "chat.message" && (e.payload.role === "assistant" || e.payload.role === "error")) setLive(null);
     if (e.type === "chat.done") setLive(null);
+    if (e.type === "render.progress") {  // WanGP downloading a model first: how much has arrived (not kept in the job)
+      const p = e.payload as { job_id: string; download?: DownloadProgress | null };
+      if (p.download) setDownloads((d) => ({ ...d, [p.job_id]: p.download! }));
+    }
     scheduleLoad();
   }, load), [projectId, subscribe, load, scheduleLoad]);
 
@@ -161,6 +168,7 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
           onPointerDown={(e) => lay.drag(1, e)} onDoubleClick={lay.reset} />
         {lay.hidden("renders") ? <PanelRail name="renders" onShow={() => lay.toggle("renders")} />
           : <MonitorPanel project={project} shot={shot} takes={takes} take={take} onTake={setSelectedTake} act={act}
+            downloads={downloads}
             onShowAll={() => { setSelectedShot(null); setSelectedTake(null); }} />}
       </>}
     </main>
@@ -281,8 +289,8 @@ function progressText(j: Job) {
   return j.total_steps ? `${phase} ${j.current_step ?? 0}/${j.total_steps}` : phase || j.status;
 }
 
-function MonitorPanel({ project, shot, takes, take, onTake, act, onShowAll }: {
-  project: ProjectDetail; shot: Shot | null; takes: Take[]; take: Take | null;
+function MonitorPanel({ project, shot, takes, take, onTake, act, onShowAll, downloads }: {
+  project: ProjectDetail; shot: Shot | null; takes: Take[]; take: Take | null; downloads: Record<string, DownloadProgress>;
   onTake: (id: string) => void; act: (fn: () => Promise<unknown>) => Promise<void>; onShowAll: () => void;
 }) {
   const active = project.jobs.filter((j) => ACTIVE_JOB.has(j.status));
@@ -311,7 +319,8 @@ function MonitorPanel({ project, shot, takes, take, onTake, act, onShowAll }: {
         <div key={j.id} className="card job">
           <div className="row"><strong>{title(j.shot_id)}</strong>{j.preview && <span className="chip preview">Preview</span>}
             <span className="chip s-rendering">{j.status}</span></div>
-          <div className="small">{progressText(j)}</div>
+          {isDownloading(j) ? <DownloadNote text={j.status_text!} progress={downloads[j.id]} />
+            : <div className="small">{progressText(j)}</div>}
           {j.status === "running" && (() => {
             const eta = etaText(j, project.shots.find((s) => s.id === j.shot_id), project.render_rates, now);
             return eta && <div className="small muted eta">{eta}</div>;

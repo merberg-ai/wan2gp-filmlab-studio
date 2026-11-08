@@ -118,6 +118,12 @@ Something else is using the GPU: a game, another WanGP job, or a local Ollama mo
 FilmLab flags a render after 10 minutes without progress but never cancels it: WanGP may still be downloading a model on its first use. Check WanGP's window. Cancel from the Renders panel if it's really stuck.
 </details>
 
+<details>
+<summary><b>A render says "Downloading…" for a long time</b></summary>
+
+WanGP downloads a model's files the first time something renders with it, which can take many minutes for a large model. The render shows how much has arrived and how fast, and isn't marked as stalled meanwhile. **Watch in WanGP ↗** opens WanGP's own page with the exact progress. If no link appears, FilmLab didn't find WanGP's page: set `FILMLAB_WANGP_WEBUI` to its address (for example `http://127.0.0.1:8888/`) in FilmLab's environment and restart it.
+</details>
+
 ## The director
 
 <details>

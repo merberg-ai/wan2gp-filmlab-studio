@@ -144,7 +144,8 @@ def test_shot_refs_follow_defaults_upload_once_and_land_in_provenance(make_harne
     proj = h.wait_for(lambda: (p := h.project(pid))["takes"] and p, what="take")
     gen = [a for n, a in h.wangp.calls if n == "wangp_generate"][-1]
     assert gen["settings"]["model_type"] == "minimax_h3_ref2va_pruned_pdd"
-    ref_uploads = [u["media_id"] for u in h.wangp.uploads][1:]  # the first upload is the capability probe image
+    # not the capability probes (an image, and an audio track for the song-driven models)
+    ref_uploads = [u["media_id"] for u in h.wangp.uploads if "audio" not in (u["content_type"] or "")][1:]
     assert gen["settings"]["image_refs"] == ref_uploads and len(ref_uploads) == 2
     prov = proj["takes"][0]["provenance"]["references"]
     assert [(r["position"], r["asset_name"], r["version"]) for r in prov] == [(1, "Corporal Hale", 1), (2, "The Trench", 1)]

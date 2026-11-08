@@ -847,3 +847,22 @@ kbd { font: 11px/1 ui-monospace, monospace; padding: 2px 5px; border-radius: 4px
   .timeline-card > :first-child { margin-top: 0; }
   .timeline-card > :last-child { margin-bottom: 0; }
 }
+
+/* Music video setup (MusicVideo.tsx) and WanGP model downloads (WanGPLink.tsx) */
+.music-setup .sm-body > section { display: grid; gap: 8px; }
+.mv-song { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.mv-song audio, .mv-list audio { height: 32px; max-width: 100%; }
+.mv-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.mv-tabs .on { border-color: var(--accent); color: var(--accent); }
+.mv-generate { display: grid; gap: 8px; }
+.mv-generate label { display: grid; gap: 4px; }
+.mv-list, .mv-models { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.mv-list .row { gap: 8px; align-items: center; flex-wrap: wrap; }
+.mv-method { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.mv-method.on { border-color: var(--accent); background: rgba(217, 164, 65, 0.06); }
+.mv-models { padding-left: 26px; }
+.mv-models label { align-items: flex-start; gap: 8px; cursor: pointer; }
+.mv-models .chip { margin-left: 6px; }
+.download-note { padding: 6px 8px; border-radius: 8px; background: rgba(217, 164, 65, 0.08); border: 1px dashed rgba(217, 164, 65, 0.35); }
+.download-note .block { margin-top: 2px; }
+.wangp-link { white-space: nowrap; }

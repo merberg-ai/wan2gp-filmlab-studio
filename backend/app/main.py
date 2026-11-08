@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import VERSION, auth, autonomy_api, creator_api, edit_api, library_api, shots, storyboard_api, system_api
+from . import VERSION, auth, autonomy_api, creator_api, edit_api, library_api, music_api, shots, storyboard_api, system_api
 from . import templates as project_templates
 from .backups import Backups
 from .gpu_stats import GpuMonitor
@@ -37,6 +37,9 @@ from .inspect_takes import Inspector
 from .runs import Runs
 from .storyboard import Storyboard, StoryboardError
 from .trash import Trash, TrashError
+from .music_video import MusicVideo, MusicVideoError
+from .wangp.webui import WanGPWebUI
+from .media import sha256_file
 from .library import Library
 from .presets import Presets
 from .references import References
@@ -110,15 +113,18 @@ class Studio:
         self.refs = References(self.db, self.wangp, self.library, self.renders)
         self.caps = Capabilities(self.db, self.wangp, settings.data_dir, self.refs.wangp_id_for_path)
         self.refs.caps = self.caps
-        self.renders.prepare_shot = self.refs.prepare_shot
+        self.renders.prepare_shot = self._prepare_shot
         self.renders.reupload_refs = self.refs.reupload
-        self.renders.reupload_voices = self.refs.reupload_voices
+        self.renders.reupload_voices = self._reupload_voices
         self.images = ImageJobs(self.renders, self.library, self.refs, self.caps)
         self.trash = Trash(self.db, self.bus, self.library, self.refs, settings.media_dir)
         self.storyboard = Storyboard(self.db, self.bus, self.library, self.caps, self.renders)
         self.batches = Batches(self.db, self.bus, self.renders, self.storyboard)
         self.edit = Edit(self.db, self.bus, self.storyboard, self.library, settings.media_dir)
         self.exporter = Exporter(self.db, self.bus, self.edit, self.library, settings.media_dir)
+        self.music = MusicVideo(self)
+        self.wangp_ui = WanGPWebUI(settings.wangp_url)
+        self.renders.webui = self.wangp_ui
         self.inspector = Inspector(self.db, self.bus, settings.media_dir, transport=vision_transport)
         self.inspector.library = self.library
         self.backups = Backups(self.db, self.bus, settings.db_path, settings.media_dir, settings.backup_dir)
@@ -140,6 +146,32 @@ class Studio:
         self.gpu = GpuMonitor(self.bus, **({"query": gpu_query} if gpu_query else {}))
         self.wangp_ready = asyncio.Event()
         self._connector: asyncio.Task | None = None
+
+    async def _prepare_shot(self, shot: dict):
+        """References and voices as usual; a lip-sync music video's shot also gets its slice of the song, uploaded
+        to WanGP, and the song-driven template it renders with (shot["_song"])."""
+        shot, refs, issues = await self.refs.prepare_shot(shot)
+        if any(i["level"] == "block" for i in issues):
+            return shot, refs, issues
+        try:
+            song = await self.music.for_render(shot)
+        except MusicVideoError as exc:
+            return shot, refs, [*issues, {"level": "block", "message": str(exc)}]
+        if song:
+            sha = await asyncio.to_thread(sha256_file, song["path"])
+            song["wangp_media_id"] = await self.refs.wangp_id_for_path(song["path"], sha, "audio/wav")
+            song["sha256"] = sha
+            shot = shot | {"_song": {k: v for k, v in song.items() if k != "path"} | {"path": str(song["path"])}}
+        return shot, refs, issues
+
+    async def _reupload_voices(self, shot: dict) -> dict:
+        shot = await self.refs.reupload_voices(shot)
+        if shot.get("_song"):  # WanGP lost the song slice too: upload it again
+            song = dict(shot["_song"])
+            await self.db.kv_set(f"wangp.upload.{self.refs._workspace()}.{song['sha256']}", None)
+            song["wangp_media_id"] = await self.refs.wangp_id_for_path(Path(song["path"]), song["sha256"], "audio/wav")
+            shot = shot | {"_song": song}
+        return shot
 
     async def start(self):
         self.settings.media_dir.mkdir(parents=True, exist_ok=True)
@@ -295,6 +327,7 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
     app.include_router(edit_api.router)
     app.include_router(autonomy_api.router)
     app.include_router(system_api.router)
+    app.include_router(music_api.router)
     owner = Depends(auth.require_owner)
 
     def st(request: Request) -> Studio:
@@ -471,7 +504,7 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
         shot_rows, jobs, takes, approvals = await s.db.fetchall_many(
             ("SELECT * FROM shots WHERE project_id = ? AND deleted_at IS NULL ORDER BY position", (project_id,)),
             ("SELECT id, shot_id, status, phase, current_step, total_steps, recovered, error, error_code, queue_ahead, "
-             "queue_running, stalled, submitted_at, started_at, finished_at, preview FROM render_jobs WHERE project_id = ? "
+             "queue_running, stalled, submitted_at, started_at, finished_at, preview, status_text FROM render_jobs WHERE project_id = ? "
              "AND shot_id IN (SELECT id FROM shots WHERE deleted_at IS NULL) "  # a deleted shot's renders go with it
              "ORDER BY submitted_at", (project_id,)),
             ("SELECT t.id, t.shot_id, t.job_id, t.media_id, t.thumb_media_id, t.provenance, t.created_at, t.verdict, "

@@ -100,7 +100,29 @@ export interface Job {
   error_info?: ErrorInfo | null; queue_ahead?: number | null; queue_running?: QueueOwner | null; stalled?: boolean;
   /** A quick low-resolution render (half width and height) to judge the shot before full quality. */
   preview?: boolean;
+  /** WanGP's own status line, e.g. "Downloading model files (2/5)" while it fetches a model first. */
+  status_text?: string | null;
 }
+/** While WanGP downloads a model for a render: what has arrived in its model folder since, and how fast. */
+export interface DownloadProgress { bytes: number; speed: number }
+export const isDownloading = (j: { status_text?: string | null }) => /download/i.test(j.status_text ?? "");
+
+/** A music video's setup (backend/app/music_video.py): the song and how shots follow it. */
+export type MusicMode = "lipsync" | "soundtrack";
+export interface LipsyncModel {
+  template: string; model_type: string; installed: boolean | null; refs: string; suggested: boolean; note: string;
+}
+export interface SongCandidate { id: string; job_id: string; file_id: string; created_at: string }
+export interface MusicVideoSetup {
+  mode: MusicMode | null; lyrics: string; style: string; speech_template: string | null;
+  song: { file_id: string; duration_s: number | null; mime: string } | null;
+  song_asset_id: string | null; song_files: { file_id: string; caption: string; duration_s?: number | null }[];
+  song_candidates: SongCandidate[];
+  song_jobs: { id: string; status: string; phase: string | null; error: string | null; submitted_at: string }[];
+  library_songs: { file_id: string; name: string; duration_s: number | null }[];
+  lipsync_models: LipsyncModel[]; song_models: { template: string; installed: boolean | null }[]; song_model: string;
+}
+export interface WanGPWebUI { found: boolean; url?: string | null; port?: number; host_is_local?: boolean }
 export interface Provenance {
   request_id: string; wangp_job_id: string; wangp_media_id: string; sha256: string;
   submitted_at: string; ingested_at: string; mcp_server?: { name?: string; version?: string };
@@ -173,6 +195,8 @@ export interface ProjectDetail extends Project {
   render_rates?: Record<string, { s_per_frame: number; samples: number }>;
   autonomy: "A0" | "A1" | "A2" | "A3"; inspections: Record<string, Inspection>; redo: RedoState;
   template: string | null; style: string;
+  music_mode?: MusicMode | null; song_file_id?: string | null; lyrics?: string; song_style?: string;
+  speech_template?: string | null;
   shots: Shot[]; jobs: Job[]; takes: Take[]; approvals: Approval[]; director_busy: boolean; last_event_id: number;
   /** A plan in parts being written right now: parts saved so far and the seconds of film they add up to. */
   planning?: { turn_id: string; started_at: string; parts: number; seconds: number; scenes: number } | null;
@@ -346,6 +370,17 @@ export const api = {
   trash: () => request<Trash>("GET", "/api/trash"),
   restore: (kind: TrashKind, id: string) => request("POST", `/api/trash/${kind}/${id}/restore`),
   purge: (kind: TrashKind, id: string) => request<{ files_removed: number }>("DELETE", `/api/trash/${kind}/${id}`),
+  musicVideo: (projectId: string) => request<MusicVideoSetup>("GET", `/api/projects/${projectId}/music-video`),
+  updateMusicVideo: (projectId: string, patch: Partial<{ mode: MusicMode | null; lyrics: string; style: string;
+    speech_template: string | null; song_file_id: string | null }>) =>
+    request<MusicVideoSetup>("PATCH", `/api/projects/${projectId}/music-video`, patch),
+  generateSong: (projectId: string, body: { lyrics: string; style: string; seconds: number; template?: string }) =>
+    request<{ song_asset_id: string }>("POST", `/api/projects/${projectId}/music-video/song`, body),
+  useSongCandidate: (projectId: string, candidateId: string) =>
+    request<MusicVideoSetup>("POST", `/api/projects/${projectId}/music-video/song/candidates/${candidateId}/use`),
+  songAsset: (projectId: string) =>
+    request<{ asset_id: string; variant_id: string }>("POST", `/api/projects/${projectId}/music-video/song-asset`),
+  wangpWebUI: () => request<WanGPWebUI>("GET", "/api/wangp/webui"),
   emptyTrash: () => request<{ purged: Record<string, number>; files_removed: number; failed: { kind: string; error: string }[] }>(
     "POST", "/api/trash/empty"),
   enhanceShot: (id: string) => request<{ turn_id: string }>("POST", `/api/shots/${id}/enhance`),

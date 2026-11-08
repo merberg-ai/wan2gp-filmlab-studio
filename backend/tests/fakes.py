@@ -36,6 +36,12 @@ CATALOGUE = {
     "edit_image": [("Flux Klein 9B", "flux2_klein_9b", ["reference", "multiple_references", "background"], True)],
     "gen_speech_from_description": [("Qwen3 1.7B", "qwen3_tts_voicedesign", [], True)],
     "gen_song": [("ACE-Step 1.5 Turbo LM 1.7B", "ace_step_v1_5_turbo_lm_1_7b", [], True)],
+    # video driven by an audio track (a music video's song slices): the same H3 model "With Sound", and Infinitalk
+    "gen_video_with_speech": [
+        ("Infinitalk", "infinitetalk", ["start", "reference", "multiple_references", "background"], True),
+        ("MiniMax H3 Ref2VA Pruned Turbo Lightx2v 8 Steps With Sound", "minimax_h3_ref2va_pruned",
+         ["start", "end", "reference", "multiple_references"], False),
+    ],
 }
 AUDIO_MODELS = {"qwen3_tts_voicedesign", "ace_step_v1_5_turbo_lm_1_7b"}
 _AUDIO: list[bytes] = []
@@ -50,7 +56,10 @@ def fake_audio() -> bytes:
 MISSING_LORA = {"MiniMax H3 Ref2VA Pruned Turbo Lightx2v 8 Steps"}
 NOT_DOWNLOADED = {"MiniMax H3 FL2VA Pruned PDD 8 Steps"}
 REF_ONLY = {"minimax_h3_ref2va_pruned", "minimax_h3_ref2va_pruned_pdd"}
-TEMPLATE_OF = {mt: (task, name) for task, rows in CATALOGUE.items() for name, mt, _, _ in rows}
+TEMPLATE_OF: dict = {}
+for _task, _rows in CATALOGUE.items():  # a model type's first template (H3 "With Sound" shares its model type)
+    for _name, _mt, _, _ in _rows:
+        TEMPLATE_OF.setdefault(_mt, (_task, _name))
 
 
 def make_test_video(path: Path) -> bytes:
@@ -82,6 +91,7 @@ class FakeWanGP:
         self.queue: list[dict] = []
         self.pending_restore: list[dict] = []
         self.down_polls = self.empty_polls = 0
+        self.download_polls = 0  # this many polls of the next job say WanGP is downloading model files
         self.cancelled_queue_ids: list[str] = []
         self.ui_polls = 3 if scenario == "contended" else 0
         if scenario in ("contended", "restart_hold"):
@@ -154,6 +164,8 @@ class FakeWanGP:
                 settings |= {"resolution": "1024x1024"}
             if mt in REF_ONLY:
                 settings["video_prompt_type"] = "I"
+            if a["task"] == "gen_video_with_speech":
+                settings["audio_prompt_type"] = "AS" if mt.startswith("minimax_h3") else "A"
             if mt == "minimax_h3_ref2va_pruned":  # like WanGP: the Turbo template declares it, PDD/PTD don't
                 settings["custom_settings"] = {"audio_refinement": "none"}
             return {"settings": settings}
@@ -264,6 +276,10 @@ class FakeWanGP:
             return base | {"done": False, "status": "queued", "progress": {}}
         if self.scenario == "stall":
             return base | {"done": False, "progress": {"phase": "inference", "current_step": 2, "total_steps": 8}}
+        if self.download_polls:  # WanGP fetching a model's files first: a status line, no steps
+            self.download_polls -= 1
+            job["polls"] = 0
+            return base | {"done": False, "progress": {"phase": "inference", "status": "Downloading model files (2/5)"}}
         if self.scenario == "oom" and job["polls"] >= 2:
             return base | {"status": "error", "done": True, "result": {"success": False, "errors": [
                 {"message": "CUDA out of memory. Tried to allocate 2.00 GiB", "stage": "inference"}]}}
