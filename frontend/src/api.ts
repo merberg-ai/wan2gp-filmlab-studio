@@ -430,6 +430,8 @@ export const api = {
   approveAndRender: (id: string, preview = false) => request<Job>("POST", `/api/shots/${id}/approve-and-render`, { preview }),
   rejectShot: (id: string) => request<Shot>("POST", `/api/shots/${id}/reject`),
   cancelJob: (id: string) => request<Job>("POST", `/api/jobs/${id}/cancel`),
+  cancelAllRenders: (projectId: string) =>
+    request<{ batches: number; jobs: number }>("POST", `/api/projects/${projectId}/renders/cancel-all`),
   chat: (pid: string) => request<ChatMessage[]>("GET", `/api/projects/${pid}/chat`),
   sendChat: (pid: string, text: string) => request<{ turn_id: string }>("POST", `/api/projects/${pid}/chat`, { text }),
   mediaUrl: (id: string) => `/api/media/${id}`,

@@ -626,3 +626,23 @@ def test_plan_sound_slips_are_repaired_and_every_problem_comes_back_at_once(make
     lines = run(h, other, "plan_storyboard", scenes=[{"title": "Bar 3", "time_place": "Night, grungy dive bar stage", "shots": [
         shot_ | {"sound": {"lines": ["Anthony_Retro: Hello, hello"], "ambience": "", "music": ""}}]}])
     assert "error" not in lines and any("became {speaker, text}" in f for f in lines["fixed_by_filmlab"]), lines
+
+
+def test_cancel_all_stops_the_batch_and_a_render_wangp_started_anyway(make_harness):
+    """Live: Cancel reached WanGP while the shot was still waiting in its queue; WanGP's job cancel doesn't remove a
+    waiting task, so it started anyway and FilmLab said "cancelling" for the whole render. FilmLab now also removes
+    its own queue task (which aborts it once running). Cancel all stops the batch and every render at once."""
+    h = make_harness("deaf_cancel").login()
+    pid = new_project(h)
+    ids = three_shots(h, pid)
+    h.post(f"/api/projects/{pid}/batches", {"shot_ids": ids})
+    wait_batch(h, pid, lambda b: b["items"][0]["status"] == "rendering", "first rendering")
+    r = h.post(f"/api/projects/{pid}/renders/cancel-all").json()
+    assert r["batches"] == 1  # its render is cancelled with it (or here, if the batch hadn't reached it)
+    b = wait_batch(h, pid, lambda b: b["items"][0]["status"] == "cancelled", "the render ended")
+    assert b["status"] == "cancelled" and all(i["status"] == "cancelled" for i in b["items"])
+    assert h.wangp.cancelled_queue_ids  # removed through FilmLab's own queue task
+    # and none is left "cancelling" (a second cancel landing just as WanGP ended it used to write that over "cancelled")
+    h.wait_for(lambda: not [j for j in h.project(pid)["jobs"] if j["status"] in ("queued", "running", "cancelling")],
+               what="no render left")
+    assert h.post(f"/api/projects/{pid}/renders/cancel-all").json() == {"batches": 0, "jobs": 0}

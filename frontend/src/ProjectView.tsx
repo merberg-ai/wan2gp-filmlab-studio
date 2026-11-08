@@ -315,7 +315,16 @@ function MonitorPanel({ project, shot, takes, take, onTake, act, onShowAll, down
 
   return (
     <section className="panel monitor">
-      <div className="panel-head"><h2>Renders</h2></div>
+      <div className="panel-head"><h2 className="grow">Renders</h2>
+        {(active.length > 1 || (project.batch && ["running", "paused"].includes(project.batch.status))) && (
+          <button className="danger small" title="Stop the batch and cancel every render of this project, waiting or running"
+            onClick={() => act(async () => {
+              const n = active.filter((j) => j.status !== "cancelling").length;
+              if (await ask(`Cancel all renders? ${n ? `${n} render${n === 1 ? "" : "s"} of this project stop` : "Nothing more starts"}`
+                + `${project.batch && ["running", "paused"].includes(project.batch.status) ? ", and the batch starts no more shots" : ""}. `
+                + "Takes already made stay.", { confirm: "Cancel all", dismiss: "Keep rendering" })) await api.cancelAllRenders(project.id);
+            })}>Cancel all</button>)}
+      </div>
       {active.length === 0 && <p className="muted small">Nothing rendering.</p>}
       {active.map((j) => (
         <div key={j.id} className="card job">

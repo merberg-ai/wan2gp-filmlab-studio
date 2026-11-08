@@ -15,6 +15,7 @@ Rules learned probing WanGP's MCP server:
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,6 +36,7 @@ log = logging.getLogger("filmlab.renders")
 ACTIVE = ("submitting", "queued", "running", "cancelling", "restored")
 TERMINAL_WANGP = ("done", "error", "interrupted", "cancelled", "unknown_after_restart")
 POLL_WAIT_S = 10
+CANCEL_AGAIN_S = 5  # a job still running after Cancel is asked again this often
 GALLERY_SCAN = 60
 # A job reported interrupted while WanGP shuts down is only re-queued once WanGP is
 # back up and has restored its saved queue (minutes, with model loading). Keep looking
@@ -117,6 +119,7 @@ class RenderService:
         self.media_dir = media_dir
         self.workspace_name = workspace
         self._tasks: dict[str, asyncio.Task] = {}
+        self._cancel_pressed: dict[str, float] = {}  # job id -> when Cancel was last sent again
         self._templates: list[dict] | None = None
         self.workspace: dict | None = None
         self.on_finish = None  # async (job, status) -> None, set by the batch runner
@@ -313,7 +316,9 @@ class RenderService:
         job = await self.job(job_id)
         if job["status"] not in ACTIVE:
             raise RenderError(f"job is {job['status']}")
-        await self.db.execute(f"UPDATE {self.TABLE} SET status = 'cancelling' WHERE id = ?", (job_id,))
+        marks = ", ".join("?" * len(ACTIVE))  # never over a job that ended since it was read: it would stay "cancelling"
+        await self.db.execute(f"UPDATE {self.TABLE} SET status = 'cancelling' WHERE id = ? AND status IN ({marks})",
+                              (job_id, *ACTIVE))
         await self.db.audit(actor, "render.cancel", job_id, {"restored": job["status"] == "restored"})
         # A restored job's WanGP record already says interrupted, so cancel_job can't reach the
         # task WanGP re-queued after its restart; _reconcile removes that via the guarded queue cancel.
@@ -321,6 +326,22 @@ class RenderService:
             await self.wangp.session("cancel_job", job_id=job["wangp_job_id"])
         await self._emit(job_id, "render.progress")
         return await self.job(job_id)
+
+    async def _press_cancel(self, job: dict):
+        """A job being cancelled that WanGP hasn't ended yet. WanGP's cancel_job doesn't reach a task still waiting in
+        its queue, which then starts anyway (live: Cancel pressed 8 s before WanGP began the shot, and FilmLab said
+        "cancelling" while WanGP rendered it). Every few seconds: remove our own queue task (only FilmLab's, by its
+        client id), which also aborts it once running, and ask again by job."""
+        if not job["wangp_job_id"] or time.monotonic() - self._cancel_pressed.get(job["id"], 0) < CANCEL_AGAIN_S:
+            return
+        self._cancel_pressed[job["id"]] = time.monotonic()
+        try:
+            queue_id = await self.wangp.cancel_own_queue_task(f"mcp_{job['wangp_job_id']}_")
+            await self.wangp.session("cancel_job", job_id=job["wangp_job_id"])
+            if queue_id:
+                await self.db.audit("system", "render.cancel_queued", job["id"], {"queue_id": queue_id})
+        except Exception as exc:  # noqa: BLE001 - tried again on the next look
+            log.info("cancelling job %s again failed: %s", job["id"], exc)
 
     def _spawn(self, job_id: str):
         if job_id in self._tasks and not self._tasks[job_id].done():
@@ -343,6 +364,8 @@ class RenderService:
                 if status in TERMINAL_WANGP or snap.get("done"):
                     return await self._on_terminal(job_id, snap)
                 prog = snap.get("progress") or {}
+                if job["status"] == "cancelling":
+                    await self._press_cancel(job)
                 new = ("running" if prog.get("phase") else "queued") if job["status"] != "cancelling" else "cancelling"
                 step = (prog.get("phase"), prog.get("current_step"), prog.get("total_steps"))
                 moved = step != (job["phase"], job["current_step"], job["total_steps"])

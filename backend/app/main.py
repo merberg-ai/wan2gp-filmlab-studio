@@ -768,6 +768,32 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
         except RenderError as exc:
             raise shot_error(exc) from exc
 
+    @app.post("/api/projects/{project_id}/renders/cancel-all")
+    async def cancel_all_renders(project_id: str, request: Request, _=owner):
+        """Stop everything this project is rendering: its open batch (no further shots start) and every render
+        already sent to WanGP, waiting or running."""
+        s = st(request)
+        await project_or_404(s, project_id)
+        batches = jobs = 0
+        for b in await s.db.fetchall("SELECT id FROM batches WHERE project_id = ? AND status IN ('running', 'paused')",
+                                     (project_id,)):
+            try:  # first, so the batch doesn't start the next shot as each render ends
+                await s.batches.cancel(b["id"], "owner")
+                batches += 1
+            except ValueError as exc:  # it finished in the meantime
+                log.info("cancel all: batch %s: %s", b["id"], exc)
+        waiting = [a for a in ACTIVE if a != "cancelling"]  # those are being stopped already
+        marks = ", ".join("?" * len(waiting))
+        for j in await s.db.fetchall(f"SELECT id FROM render_jobs WHERE project_id = ? AND status IN ({marks})",
+                                     (project_id, *waiting)):
+            try:
+                await s.renders.cancel(j["id"], "owner")
+                jobs += 1
+            except RenderError as exc:
+                log.info("cancel all: job %s: %s", j["id"], exc)
+        await s.db.audit("owner", "render.cancel_all", project_id, {"batches": batches, "jobs": jobs})
+        return {"batches": batches, "jobs": jobs}
+
     # chat ------------------------------------------------------------------
 
     @app.get("/api/projects/{project_id}/chat")

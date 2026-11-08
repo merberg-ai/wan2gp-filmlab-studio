@@ -216,7 +216,7 @@ class FakeWanGP:
                              "image": batch[0].get("model_type") in ("z_image", "flux2_klein_9b"),
                              "audio": batch[0].get("model_type") in AUDIO_MODELS}
         self.by_request[rid] = job_id
-        if self.scenario == "contended":
+        if self.scenario in ("contended", "deaf_cancel"):
             self.queue.append({"queue_id": f"q-{job_id}", "position": len(self.queue) + 1, "status": "queued",
                                "client_id": f"mcp_{job_id}_1", "mcp_agent_id": "ctx1"})
         return {"job_id": job_id, "reused": False, "canvas": {"requested": "1280x720", "generated": "1280x704"}}
@@ -241,9 +241,15 @@ class FakeWanGP:
             return {"status": "done", "total_count": len(tasks), "tasks": tasks}
         if action == "cancel_queue_task":
             self.cancelled_queue_ids.append(args["queue_id"])
+            gone = [t for t in self.queue if t["queue_id"] == args["queue_id"]]
             self.queue = [t for t in self.queue if t["queue_id"] != args["queue_id"]]
+            for job in self.jobs.values():  # removing (or aborting) the task ends its job
+                if any(t.get("client_id") == job["client_id"] for t in gone):
+                    job["cancelled"] = True
             return {"status": "cancelled", "queue_id": args["queue_id"]}
         if action == "cancel_job":
+            if self.scenario == "deaf_cancel":  # live: a task still waiting in WanGP's queue starts anyway
+                return {"job_id": args["job_id"], "done": False, "cancel_requested": True}
             self.jobs[args["job_id"]]["cancelled"] = True
             return {"job_id": args["job_id"], "done": False, "cancel_requested": True}
         if action == "create_file_download":
@@ -285,7 +291,7 @@ class FakeWanGP:
         if self.scenario == "oom" and job["polls"] >= 2:
             return base | {"status": "error", "done": True, "result": {"success": False, "errors": [
                 {"message": "CUDA out of memory. Tried to allocate 2.00 GiB", "stage": "inference"}]}}
-        if self.scenario == "slow" or job["polls"] < 3:
+        if self.scenario in ("slow", "deaf_cancel") or job["polls"] < 3:
             return base | {"done": False, "progress": {"phase": "inference", "current_step": job["polls"], "total_steps": 8}}
         media_id = f"visual:{job['id']}"
         if self.scenario == "lost":  # interrupted and never restored by WanGP
