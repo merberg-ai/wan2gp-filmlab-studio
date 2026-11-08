@@ -113,3 +113,23 @@ def test_director_drafts_an_asset_from_the_chat(make_harness):
     [c] = h.c.get("/api/creations").json()
     assert c["status"] == "ready" and c["asset"]["name"] == "Jim's lab" and c["brief"] == "the brief needs it"
     assert "not drafted" in run(h, pid, "propose_asset", kind="prop", name="x", description="y")["error"]
+
+
+def test_emptying_recently_deleted_removes_discarded_and_deleted_creator_assets(make_harness):
+    """Live: an asset made by the Creator kept its creations row, so deleting it forever (or emptying Recently
+    deleted) failed with a foreign-key error and an Internal Server Error, and nothing was deleted."""
+    h = make_harness().login()
+    c = ready(h, post(h, "/api/creations", {"kind": "sound", "brief": "A bubbly theme for the lab scenes"}).json()["id"])
+    post(h, f"/api/creations/{c['id']}/generate", {"part": "music"})
+    finish(h, c, "music")
+    post(h, f"/api/creations/{c['id']}/approve")
+    h.c.delete(f"/api/library/assets/{c['asset_id']}", headers={"x-csrf-token": h.csrf})  # approved, then deleted
+    other = ready(h, post(h, "/api/creations", {"kind": "prop", "brief": "A big brass lab switch"}).json()["id"])
+    post(h, f"/api/creations/{other['id']}/discard")
+    assert len(h.c.get("/api/trash").json()["assets"]) == 2
+    r = post(h, "/api/trash/empty")
+    assert r.status_code == 200, r.text
+    assert r.json()["purged"] == {"assets": 2} and r.json()["failed"] == []
+    assert h.c.get("/api/trash").json()["assets"] == []
+    left = h.c.portal.call(h.studio.db.fetchone, "SELECT COUNT(*) AS n FROM creations")["n"]
+    assert left == 0

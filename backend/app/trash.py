@@ -260,6 +260,11 @@ class Trash:
                     counts[key] = counts.get(key, 0) + 1
                 except TrashError as exc:
                     failed.append({"kind": kind, "id": r["id"], "error": str(exc)})
+                except Exception as exc:  # noqa: BLE001 - one item that can't go mustn't stop the rest
+                    log.exception("emptying Recently deleted: %s %s failed", kind, r["id"])
+                    failed.append({"kind": kind, "id": r["id"],
+                                   "error": f"{r.get('title') or r.get('name') or kind} couldn't be deleted "
+                                            f"({type(exc).__name__}); it stays in Recently deleted"})
         await self.db.audit(actor, "trash.empty", None, {"purged": counts, "files_removed": removed, "failed": len(failed)})
         return {"purged": counts, "files_removed": removed, "failed": failed}
 
@@ -325,6 +330,7 @@ class Trash:
                 c.execute("UPDATE scenes SET location_asset_id = NULL WHERE location_asset_id = ?", (asset_id,))
                 c.execute("DELETE FROM project_cast WHERE asset_id = ?", (asset_id,))
                 c.execute("DELETE FROM library_search WHERE asset_id = ?", (asset_id,))
+                c.execute("DELETE FROM creations WHERE asset_id = ?", (asset_id,))  # a Creator draft it came from
                 c.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
         await self.db.transaction(write)
 
@@ -334,7 +340,8 @@ class Trash:
             "SELECT * FROM library_files f WHERE NOT EXISTS (SELECT 1 FROM variant_files WHERE file_id = f.id) "
             "AND NOT EXISTS (SELECT 1 FROM image_candidates WHERE file_id = f.id) "
             "AND NOT EXISTS (SELECT 1 FROM shot_refs WHERE file_id = f.id) "
-            "AND NOT EXISTS (SELECT 1 FROM assets WHERE voice_file_id = f.id)")
+            "AND NOT EXISTS (SELECT 1 FROM assets WHERE voice_file_id = f.id) "
+            "AND NOT EXISTS (SELECT 1 FROM projects WHERE song_file_id = f.id)")  # a music video's song
         if not orphans:
             return 0
         ids = [f["id"] for f in orphans]
