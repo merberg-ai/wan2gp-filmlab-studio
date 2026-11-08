@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { StartupSection } from "./Startup";
 import { ask } from "./Dialog";
 import { type Capabilities, type Capability, lib, type Preset, templateLabel, type TemplateSettings } from "./library-api";
 import { api, type DirectorModel, type DirectorOverview, type DirectorSettings as DS, type InspectionSettings as InspectionSettingsT } from "./api";
@@ -41,9 +42,13 @@ export function SettingsPage() {
     } catch (e) { setError((e as Error).message); }
   };
 
-  if (!caps) return <main className="page">{error ? <p className="error">{error}</p> : <p className="muted">Checking WanGP's templates…</p>}</main>;
+  // Startup & WanGP comes first and shows even while WanGP is down (that's when it's needed)
+  if (!caps) return (
+    <main className="page"><StartupSection />
+      {error ? <p className="error">{error}</p> : <p className="muted">Checking WanGP's templates…</p>}</main>);
   return (
     <main className="page">
+      <StartupSection />
       <section>
         <h2>Default models</h2>
         <p className="muted small">Shots and image generations that don't name a template use these. A project can

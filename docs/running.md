@@ -32,7 +32,16 @@ Then open **http://127.0.0.1:19300** (or your HTTPS address if you set up phone 
 > [!NOTE]
 > `start` keeps a small hidden WSL session open, because WSL otherwise stops an idle distro after a few seconds. `stop` ends it and shuts down **only** the FilmLab distro. Your other WSL distros keep running. FilmLab never runs `wsl --shutdown`.
 
-Nothing starts with Windows unless you chose **Start at logon** during setup (`scripts\install\f7-startup-task.ps1 -Install` / `-Remove`).
+`start` also runs FilmLab's small **Windows helper** (`scripts\filmlab-host.ps1`, hidden). FilmLab's server runs in WSL and can't start Windows programs, so the helper does it:
+
+- It finds WanGP by itself: the WanGP that's running, the folder you chose, the one found before, or the usual places (each drive's `Wan2GP`, your profile, Pinokio). It reads WanGP's launcher (`RUN-WAN2GP.cmd`, `run.bat`, or `python wgp.py` with `args.txt`) and its ports.
+- It starts WanGP in a minimized window if WanGP isn't running, and again if it stops, when those are turned on.
+- It carries out **Settings → Startup & WanGP** in the cockpit: start WanGP now, detect again, choose WanGP's folder, and the startup options.
+- `stop` ends the helper but leaves WanGP running.
+
+**After a restart:** turn on **Settings → Startup & WanGP → Start FilmLab when I sign in to Windows**. A scheduled task named “FilmLab Studio” then starts FilmLab, and WanGP if set, shortly after you sign in. Turning it off removes the task. `scripts\install\f7-startup-task.ps1 -Install` / `-Remove` does the same from PowerShell.
+
+`scripts\filmlab-host.ps1 detect` shows what the helper finds; its log is `%LOCALAPPDATA%\FilmLab\logs\host.log`.
 
 ## Order of things
 
@@ -40,7 +49,13 @@ Nothing starts with Windows unless you chose **Start at logon** during setup (`s
 2. **Ollama**, running in the tray. Needed for the director, and for take inspection's vision check if you turned it on.
 3. **FilmLab**: `filmlabctl.ps1 start`.
 
-The order isn't strict: FilmLab reconnects on its own when WanGP or Ollama start or restart. The status lights in the cockpit's top bar show **Events**, **Director** and **WanGP** (with its queue), and the **GPU** and **VRAM** meters show live load.
+The order isn't strict: FilmLab reconnects on its own when WanGP or Ollama start or restart, and the helper can start WanGP for you. If WanGP stops while FilmLab runs, FilmLab notices within about a minute:
+
+- A banner across the cockpit says so, with **Start WanGP**.
+- New renders say WanGP isn't running, and a running batch pauses.
+- When WanGP is back, the batch carries on by itself and the renders it was following pick up again.
+
+The top bar shows the **WanGP** light (with its queue) and the **GPU** and **VRAM** meters.
 
 ## From your phone
 

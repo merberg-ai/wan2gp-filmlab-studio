@@ -866,3 +866,13 @@ kbd { font: 11px/1 ui-monospace, monospace; padding: 2px 5px; border-radius: 4px
 .download-note { padding: 6px 8px; border-radius: 8px; background: rgba(217, 164, 65, 0.08); border: 1px dashed rgba(217, 164, 65, 0.35); }
 .download-note .block { margin-top: 2px; }
 .wangp-link { white-space: nowrap; }
+
+/* Startup & WanGP (Startup.tsx) */
+.startup { display: grid; gap: 10px; }
+.startup .row { gap: 10px; align-items: center; flex-wrap: wrap; }
+.startup-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+.startup-facts dt { color: var(--muted); }
+.startup-facts dd { margin: 0; word-break: break-all; }
+.startup .check { display: flex; gap: 8px; align-items: center; }
+.wangp-banner { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 16px; font-size: 13px;
+  background: rgba(240, 138, 132, 0.12); border-bottom: 1px solid rgba(240, 138, 132, 0.35); }

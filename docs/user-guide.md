@@ -225,6 +225,7 @@ The **Edit & export** tab assembles the film from each shot's chosen take, in st
 
 | Section | What you set |
 |---|---|
+| **Startup & WanGP** | Whether WanGP is connected, with **Start WanGP**, and where WanGP is (found by itself, or the folder you choose; **Detect again**). Also: start WanGP when FilmLab starts, start it again if it stops, and **Start FilmLab when I sign in to Windows** so FilmLab comes back after a restart. This section shows even while WanGP is down |
 | **Models** | The default WanGP templates for video (with and without references), reference images, voice design and music; and every installed template with whether it's usable (**Check again** after downloading models in WanGP) |
 | **Presets** | Ready-made size, length and model combinations, plus your own |
 | **Director** | The director's model, your standing notes for it, how it replies, how many steps it may take, and a connection test |

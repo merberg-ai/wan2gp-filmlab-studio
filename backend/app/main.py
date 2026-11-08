@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import VERSION, auth, autonomy_api, creator_api, edit_api, library_api, music_api, shots, storyboard_api, system_api
+from . import VERSION, auth, autonomy_api, creator_api, edit_api, host_api, library_api, music_api, shots, storyboard_api, system_api
 from . import templates as project_templates
 from .backups import Backups
 from .gpu_stats import GpuMonitor
@@ -39,6 +39,7 @@ from .storyboard import Storyboard, StoryboardError
 from .trash import Trash, TrashError
 from .music_video import MusicVideo, MusicVideoError
 from .wangp.webui import WanGPWebUI
+from .host import Host
 from .media import sha256_file
 from .library import Library
 from .presets import Presets
@@ -48,6 +49,9 @@ from .wangp import errors
 from .wangp.client import WanGPClient
 
 log = logging.getLogger("filmlab")
+WANGP_WATCH_S = 20  # how often FilmLab checks WanGP is still there, once connected
+WANGP_DOWN = ("WanGP isn't running. Start it (Settings > Startup & WanGP, or the banner); a batch carries on by "
+              "itself when WanGP is back")
 HEARTBEAT_S = 20
 LOGIN_FAIL_DELAY_S = 1
 
@@ -123,6 +127,7 @@ class Studio:
         self.edit = Edit(self.db, self.bus, self.storyboard, self.library, settings.media_dir)
         self.exporter = Exporter(self.db, self.bus, self.edit, self.library, settings.media_dir)
         self.music = MusicVideo(self)
+        self.host = Host()
         self.wangp_ui = WanGPWebUI(settings.wangp_url)
         self.renders.webui = self.wangp_ui
         self.inspector = Inspector(self.db, self.bus, settings.media_dir, transport=vision_transport)
@@ -141,7 +146,7 @@ class Studio:
         self.creator = Creator(self)
         self.runs.held = self.gpu_held
         self.health.wangp = (self.wangp, None)
-        self.renders.gate = self.gpu_held
+        self.renders.gate = self.render_gate
         self.renders.listeners += [self.runs.job_finished, self._inspect_new_take]
         self.gpu = GpuMonitor(self.bus, **({"query": gpu_query} if gpu_query else {}))
         self.wangp_ready = asyncio.Event()
@@ -190,11 +195,59 @@ class Studio:
                 self.wangp_ready.set()
                 await self.batches.resume_all()
                 await self.runs.resume_all()
-                return
+                break
             except Exception as exc:
                 log.warning("WanGP not reachable (%s: %s); retrying in %ss", type(exc).__name__, exc, delay)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 60)
+        await self._watch_wangp()
+
+    async def _watch_wangp(self):
+        """WanGP can stop (closed, crashed, restarted) after FilmLab connected: notice it, so the cockpit says so and
+        new work waits instead of failing; when it's back, carry on with what was waiting."""
+        misses = 0
+        while True:
+            await asyncio.sleep(WANGP_WATCH_S)
+            try:
+                await asyncio.wait_for(self.wangp.session("list_queue"), 15)
+                up = True
+            except Exception:  # noqa: BLE001 - unreachable, refused, timed out: all "not there"
+                up = False
+            if up:
+                misses = 0
+                if not self.wangp_ready.is_set():
+                    await self._wangp_back()
+            else:
+                misses += 1
+                if misses >= 2 and self.wangp_ready.is_set():
+                    self.wangp_ready.clear()
+                    log.warning("WanGP stopped answering; new renders wait until it's back")
+                    await self.db.audit("system", "wangp.down", None)
+                    await self.bus.publish("wangp.status", {"connected": False})
+
+    async def _wangp_back(self):
+        try:
+            await self.renders.connect()
+        except Exception as exc:  # noqa: BLE001 - not quite back yet: the next check tries again
+            log.info("WanGP answers but isn't ready yet: %s", exc)
+            return
+        self.wangp_ready.set()
+        log.info("WanGP is back")
+        await self.db.audit("system", "wangp.up", None)
+        await self.bus.publish("wangp.status", {"connected": True})
+        await self.renders.resume_all()
+        await self.images.resume_all()
+        for b in await self.db.fetchall("SELECT id FROM batches WHERE status = 'paused' AND pause_reason = ?",
+                                        (WANGP_DOWN,)):
+            try:
+                await self.batches.resume(b["id"], "system")
+            except Exception:  # noqa: BLE001
+                log.exception("couldn't resume batch %s after WanGP came back", b["id"])
+        await self.runs.resume_all()
+
+    async def render_gate(self) -> str | None:
+        """Why a render, batch or image can't start now: the owner's GPU hold, the disk, or WanGP being down."""
+        return await self.gpu_held() or (None if self.wangp_ready.is_set() else WANGP_DOWN)
 
     async def new_shot_template(self, project_id: str, name: str | None) -> tuple[dict, bool]:
         """(template, explicit) for a new shot: the named one, or the project's/global default without refs."""
@@ -328,6 +381,7 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
     app.include_router(autonomy_api.router)
     app.include_router(system_api.router)
     app.include_router(music_api.router)
+    app.include_router(host_api.router)
     owner = Depends(auth.require_owner)
 
     def st(request: Request) -> Studio:

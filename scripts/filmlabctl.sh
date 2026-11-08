@@ -42,6 +42,9 @@ start_backend() {
   UNIT_EXTRA=(--working-directory="$REPO/backend" --setenv=FILMLAB_STATIC_DIR="$HOME/filmlab/app/static"
               --setenv=FILMLAB_PORT="$BACKEND_PORT" --setenv=PYTHONUNBUFFERED=1
               --property=EnvironmentFile=-"$BACKEND_ENV"
+              # where the Windows helper (filmlab-host.ps1) keeps its status and takes requests; written by
+              # filmlabctl.ps1 start
+              --property=EnvironmentFile=-"$HOME/.config/filmlab/host.env"
               # Stop sends SIGTERM to the backend only, so it can stop ffmpeg and keep exports resumable;
               # anything left after it exits is killed.
               --property=KillMode=mixed)

@@ -14,6 +14,7 @@ import { Projects } from "./Projects";
 import { alertOwner, dismissToast, setNotify, showToast, useNotifyState, useToasts } from "./notify";
 import { CommandPalette } from "./Palette";
 import { useUploads } from "./uploads";
+import { WanGPDownBanner } from "./Startup";
 
 // Hash routes: #/ (projects) and #/p/<id> (project workspace).
 function useRoute() {
@@ -67,6 +68,7 @@ function Studio({ onLogout }: { onLogout: () => void }) {
       if (e.type === "system.gpu") { setGpu(e.payload as GpuSample); return; }
       listeners.forEach((l) => l(e));
       if (e.event_id !== null && (e.type === "render.done" || e.type === "render.ended")) renderFinished(e);
+      if (e.type === "wangp.status") refreshHealth();  // WanGP stopped or came back
     },
     () => { resyncs.forEach((r) => r()); refreshHealth(); },
   );
@@ -101,6 +103,7 @@ function Studio({ onLogout }: { onLogout: () => void }) {
       </header>
       <Toasts />
       <UploadProgress />
+      {health && !health.wangp.connected && <WanGPDownBanner />}
       <CommandPalette route={route} />
       {route.page === "project" ? <ProjectView key={route.id} projectId={route.id} tab={route.tab} subscribe={subscribe} />
         : route.page === "library" ? <LibraryPage assetId={route.id} creationId={route.creation} subscribe={subscribe} />

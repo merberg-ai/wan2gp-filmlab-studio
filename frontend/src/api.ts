@@ -123,6 +123,16 @@ export interface MusicVideoSetup {
   lipsync_models: LipsyncModel[]; song_models: { template: string; installed: boolean | null }[]; song_model: string;
 }
 export interface WanGPWebUI { found: boolean; url?: string | null; port?: number; host_is_local?: boolean }
+/** The Windows helper (scripts/filmlab-host.ps1): WanGP's folder, launcher, ports and the startup settings. */
+export interface HostStatus {
+  available: boolean; helper_running: boolean; wangp_connected: boolean; updated_at?: string;
+  wangp?: { found: boolean; path: string | null; found_by: string | null; launcher: string | null; python: string | null;
+    mcp_port: number | null; webui_port: number | null; mcp_enabled: boolean | null; running: boolean; process: boolean;
+    starting: boolean; started_by_filmlab: boolean };
+  settings?: { wangp_autostart: boolean; wangp_restart: boolean; start_at_logon: boolean; wangp_path_chosen: string | null };
+  note?: string | null; error?: string | null;
+}
+export type HostSettings = Partial<{ wangp_autostart: boolean; wangp_restart: boolean; start_at_logon: boolean; wangp_path: string }>;
 export interface Provenance {
   request_id: string; wangp_job_id: string; wangp_media_id: string; sha256: string;
   submitted_at: string; ingested_at: string; mcp_server?: { name?: string; version?: string };
@@ -381,6 +391,10 @@ export const api = {
   songAsset: (projectId: string) =>
     request<{ asset_id: string; variant_id: string }>("POST", `/api/projects/${projectId}/music-video/song-asset`),
   wangpWebUI: () => request<WanGPWebUI>("GET", "/api/wangp/webui"),
+  host: () => request<HostStatus>("GET", "/api/host"),
+  startWanGP: () => request("POST", "/api/host/wangp/start"),
+  detectWanGP: () => request("POST", "/api/host/detect"),
+  hostSettings: (s: HostSettings) => request("PATCH", "/api/host/settings", s),
   emptyTrash: () => request<{ purged: Record<string, number>; files_removed: number; failed: { kind: string; error: string }[] }>(
     "POST", "/api/trash/empty"),
   enhanceShot: (id: string) => request<{ turn_id: string }>("POST", `/api/shots/${id}/enhance`),

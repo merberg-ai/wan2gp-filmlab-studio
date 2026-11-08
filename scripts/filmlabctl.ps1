@@ -53,6 +53,39 @@ function Stop-KeepAlive {
     Remove-Item $KeepAlivePid -ErrorAction SilentlyContinue
 }
 
+# The Windows helper (filmlab-host.ps1): finds and starts WanGP, carries out the cockpit's Startup & WanGP
+# settings. Started hidden through WMI like the keep-alive, so closing a terminal doesn't end it.
+$HostPid = Join-Path $StateDir 'host.pid'
+$HostScript = Join-Path $PSScriptRoot 'filmlab-host.ps1'
+
+function Get-HostHelper {
+    if (-not (Test-Path $HostPid)) { return $null }
+    Get-Process -Id ([int](Get-Content $HostPid)) -ErrorAction SilentlyContinue |
+        Where-Object { $_.ProcessName -match 'powershell|pwsh' }
+}
+
+function Start-HostHelper {
+    if (Get-HostHelper) { return }
+    New-Item -ItemType Directory -Force $StateDir | Out-Null
+    $hidden = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }
+    $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+        CommandLine = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$HostScript`" -Command run"
+        ProcessStartupInformation = $hidden }
+    if ($r.ReturnValue -ne 0) { Write-Warning "could not start the Windows helper (returned $($r.ReturnValue))" }
+}
+
+function Stop-HostHelper {
+    $p = Get-HostHelper
+    if ($p) { Stop-Process -Id $p.Id -Force }
+    Remove-Item $HostPid -ErrorAction SilentlyContinue
+}
+
+function Set-HostDir {
+    # Tell FilmLab's server (in the distro) where the helper's folder is: %LOCALAPPDATA%\FilmLab as a WSL path.
+    $dir = '/mnt/' + $StateDir.Substring(0, 1).ToLower() + $StateDir.Substring(2).Replace('\', '/')
+    wsl.exe -d $Distro -- bash -c "mkdir -p ~/.config/filmlab && echo 'FILMLAB_HOST_DIR=$dir' > ~/.config/filmlab/host.env" | Out-Null
+}
+
 function Invoke-Inner([string[]]$InnerArgs) {
     wsl.exe -d $Distro -- bash $Inner @InnerArgs 2>&1 | ForEach-Object { $_ -replace "`0", '' }
 }
@@ -68,18 +101,22 @@ switch ($Command) {
             Invoke-Inner @('stop')
         }
         Stop-KeepAlive
+        Stop-HostHelper  # WanGP keeps running: stopping FilmLab doesn't stop it
         if ((Get-DistroState) -eq 'Running') { wsl.exe --terminate $Distro | Out-Null }
         "FilmLab distro: $(Get-DistroState)"
     }
     'logs' { Invoke-Inner @('logs', $Service, "$Lines") }
     { $_ -in 'start', 'restart', 'restart-backend' } {
         Start-KeepAlive
+        Set-HostDir
+        Start-HostHelper  # starts WanGP too if it isn't running (Settings > Startup & WanGP)
         Invoke-Inner @($Command)
-        "FilmLab distro: $(Get-DistroState) · keep-alive pid $((Get-KeepAlive).Id)"
+        $helper = if (Get-HostHelper) { "helper pid $((Get-HostHelper).Id)" } else { 'helper starting' }
+        "FilmLab distro: $(Get-DistroState) - keep-alive pid $((Get-KeepAlive).Id) - $helper"
     }
     default {
         Invoke-Inner @($Command)
         $ka = if (Get-KeepAlive) { "keep-alive pid $((Get-KeepAlive).Id)" } else { 'no keep-alive (distro will idle-stop)' }
-        "FilmLab distro: $(Get-DistroState) · $ka"
+        "FilmLab distro: $(Get-DistroState) - $ka"
     }
 }

@@ -87,7 +87,13 @@ Start it with `filmlabctl.ps1 start` (not by opening a WSL shell): `start` keeps
 <details>
 <summary><b>"WanGP" or "Director" light is red</b></summary>
 
-See [WanGP and rendering](#wangp-and-rendering) or [The director](#the-director). Both reconnect on their own once fixed.
+See [WanGP and rendering](#wangp-and-rendering) or [The director](#the-director). Both reconnect on their own once fixed. If WanGP isn't running, the banner's **Start WanGP** (or **Settings → Startup & WanGP**) starts it.
+</details>
+
+<details>
+<summary><b>FilmLab isn't running after a restart</b></summary>
+
+Turn on **Settings → Startup & WanGP → Start FilmLab when I sign in to Windows**, or start it with `scriptsilmlabctl.ps1 start`. If Settings says the Windows helper isn't running, FilmLab was started some other way. Run `filmlabctl.ps1 start` once to start the helper; FilmLab itself keeps running.
 </details>
 
 ## WanGP and rendering
