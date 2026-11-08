@@ -92,6 +92,7 @@ function Studio({ onLogout }: { onLogout: () => void }) {
           <a href="#/settings" className={route.page === "settings" ? "on" : ""}>Settings</a>
           <a href="#/system" className={route.page === "system" ? "on" : ""}>Health &amp; backups</a>
           <a href="#/deleted" className={route.page === "deleted" ? "on" : ""}>Recently deleted</a>
+          <a href="#/about" className={route.page === "about" ? "on" : ""}>About</a>
         </nav>
         <StatusBar health={health} stream={stream} />
         <GpuMeters sample={stream === "live" ? gpu : null} />
