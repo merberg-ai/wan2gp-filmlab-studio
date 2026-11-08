@@ -18,6 +18,7 @@ class EventBus:
     def __init__(self, db: Database):
         self.db = db
         self._subscribers: set[asyncio.Queue] = set()
+        self.listeners: list = []  # async (event) -> None, told about every durable event (the Console)
 
     def subscribe(self) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue(maxsize=1000)
@@ -47,6 +48,8 @@ class EventBus:
             (ts, type_, project_id, json.dumps(payload)))
         event = _envelope(event_id, type_, project_id, ts, payload)
         self._broadcast(event)
+        for listen in self.listeners:
+            asyncio.get_running_loop().create_task(listen(event))
         return event
 
     def publish_ephemeral(self, type_: str, payload: dict, project_id: str | None = None):

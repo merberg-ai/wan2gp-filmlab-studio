@@ -15,6 +15,7 @@ import { alertOwner, dismissToast, setNotify, showToast, useNotifyState, useToas
 import { CommandPalette } from "./Palette";
 import { useUploads } from "./uploads";
 import { AboutPage } from "./About";
+import { ConsoleDrawer, ConsoleView, useConsoleKey, useUnseenErrors } from "./Console";
 import { CreatePage } from "./Creator";
 import type { AssetKind } from "./library-api";
 import mark from "./brand/filmlab-mark-64.webp";
@@ -44,6 +45,7 @@ function useRoute() {
   if (hash.startsWith("#/system")) return { page: "system" as const };
   if (hash.startsWith("#/selftest")) return { page: "selftest" as const };
   if (hash.startsWith("#/about")) return { page: "about" as const };
+  if (hash.startsWith("#/console")) return { page: "console" as const };
   return { page: "projects" as const };
 }
 
@@ -86,8 +88,13 @@ function Studio({ onLogout }: { onLogout: () => void }) {
     return () => { listeners.delete(l); resyncs.delete(r); };
   }, [listeners, resyncs]);
 
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  const toggleConsole = useCallback(() => setConsoleOpen((o) => !o), []);
+  useConsoleKey(toggleConsole);
+  const unseen = useUnseenErrors(subscribe, consoleOpen);
+
   return (
-    <div className="shell">
+    <div className={`shell ${consoleOpen ? "console-open" : ""}`}>
       <header className="topbar">
         <a className="brand" href="#/"><img className="brand-mark" src={mark} alt="" width={26} height={26} />FilmLab <span>Studio</span></a>
         {health?.version && <span className="version muted" title="FilmLab version">v{health.version}</span>}
@@ -108,9 +115,15 @@ function Studio({ onLogout }: { onLogout: () => void }) {
             strokeLinecap="round" d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5 20 20" /></svg>
           <kbd>Ctrl K</kbd>
         </button>
+        <button className={`ghost console-toggle ${consoleOpen ? "on" : ""}`} aria-pressed={consoleOpen}
+          title="Console: what FilmLab is doing in the background (key: `)" aria-label="Console"
+          onClick={toggleConsole}>&gt;_{unseen > 0 && <span className="console-badge">{unseen}</span>}</button>
         <NotifyToggle />
         <button className="ghost" onClick={() => api.logout().finally(onLogout)}>Sign out</button>
       </header>
+      {consoleOpen && route.page !== "console" && (
+        <ConsoleDrawer subscribe={subscribe} projectId={route.page === "project" ? route.id : null}
+          onClose={() => setConsoleOpen(false)} />)}
       <Toasts />
       <UploadProgress />
       {health && !health.wangp.connected && <WanGPDownBanner />}
@@ -122,6 +135,9 @@ function Studio({ onLogout }: { onLogout: () => void }) {
           : route.page === "system" ? <SystemPage gpu={stream === "live" ? gpu : null} />
           : route.page === "selftest" ? <SelfTestPage />
           : route.page === "about" ? <AboutPage version={health?.version} />
+          : route.page === "console" ? (
+            <main className="page console-page"><h2>Console</h2>
+              <ConsoleView subscribe={subscribe} projectId={null} full /></main>)
           : route.page === "create" ? <CreatePage subscribe={subscribe} kind={route.kind} creationId={route.creation} />
           : route.page === "sheet" ? <ContactSheet projectId={route.id} />
             : <Projects subscribe={subscribe} />}

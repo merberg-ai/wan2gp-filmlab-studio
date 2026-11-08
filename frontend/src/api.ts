@@ -129,6 +129,11 @@ export interface MusicVideoSetup {
   library_songs: { file_id: string; name: string; duration_s: number | null }[];
   lipsync_models: LipsyncModel[]; song_models: { template: string; installed: boolean | null }[]; song_model: string;
 }
+/** One line of the Console (backend/app/console.py). */
+export interface ConsoleLine {
+  id: number; ts: string; level: "info" | "warn" | "error"; source: string; message: string; project_id: string | null;
+  has_detail: boolean;
+}
 export interface WanGPWebUI { found: boolean; url?: string | null; port?: number; host_is_local?: boolean }
 /** The Windows helper (scripts/filmlab-host.ps1): WanGP's folder, launcher, ports and the startup settings. */
 export interface HostStatus {
@@ -400,6 +405,9 @@ export const api = {
   songAsset: (projectId: string) =>
     request<{ asset_id: string; variant_id: string }>("POST", `/api/projects/${projectId}/music-video/song-asset`),
   wangpWebUI: () => request<WanGPWebUI>("GET", "/api/wangp/webui"),
+  consoleLines: (q: { before_id?: number; limit?: number; level?: string; source?: string; project_id?: string; q?: string }) =>
+    request<ConsoleLine[]>("GET", `/api/console?${new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]))}`),
+  consoleEntry: (id: number) => request<ConsoleLine & { detail: string | null }>("GET", `/api/console/${id}`),
   host: () => request<HostStatus>("GET", "/api/host"),
   startWanGP: () => request("POST", "/api/host/wangp/start"),
   detectWanGP: () => request("POST", "/api/host/detect"),

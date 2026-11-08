@@ -89,6 +89,7 @@ function PaletteDialog({ route, onClose }: { route: Route; onClose: () => void }
       { key: "p-sys", group: "Go to", label: "Health & backups", run: go("#/system") },
       { key: "p-del", group: "Go to", label: "Recently deleted", run: go("#/deleted") },
       { key: "p-about", group: "Go to", label: "About FilmLab Studio", run: go("#/about") },
+      { key: "p-console", group: "Go to", label: "Console (what FilmLab is doing)", run: go("#/console") },
       ...projects.filter((p) => p.id !== projectId).map((p) => ({ key: `pr-${p.id}`, group: "Projects", label: p.title,
         hint: p.logline || undefined, run: go(`#/p/${p.id}`) })),
       ...assets.map((a) => ({ key: `a-${a.id}`, group: "Library", label: a.name, hint: a.kind, run: go(`#/library/${a.id}`) })),

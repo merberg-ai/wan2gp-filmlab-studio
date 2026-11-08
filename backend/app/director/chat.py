@@ -63,6 +63,7 @@ class DirectorChat:
         self._task_of: dict[str, asyncio.Task] = {}  # the project's running turn, for Stop
         self._stopping: set[str] = set()  # turns the owner stopped (a cancel otherwise means shutdown)
         self.planning: dict[str, dict] = {}  # a plan in parts being written: parts saved, seconds planned
+        self.console = None  # Console, set by Studio: each tool call with its arguments and result
 
     def busy(self, project_id: str) -> bool:
         return project_id in self._active
@@ -339,11 +340,34 @@ class DirectorChat:
                                                  "ok": not failed(output),
                                                  "summary": json.dumps(output)[:400]}, project_id)
             content = json.dumps(output)
+            if self.console:
+                await self._console_tool(project_id, name, args, output)
             if succeeded is not None and not failed(output) and "nothing changed" not in output.get("note", ""):
                 succeeded.add(name)
             await self._save(project_id, "tool", content, tool_call_id=call["id"])
             follow.append({"role": "tool", "tool_call_id": call["id"], "content": content})
         return follow
+
+    async def _console_tool(self, project_id, name, args, output):
+        try:
+            parsed = json.loads(args or "{}")
+        except ValueError:
+            parsed = args
+        bad = failed(output)
+        if bad:
+            errs = output.get("errors") if isinstance(output, dict) else None
+            msg = f"{name} was refused: {'; '.join(errs[:2]) if errs else output.get('error') if isinstance(output, dict) else output}"
+        elif name == "plan_storyboard" and isinstance(output, dict):
+            msg = (f"plan_storyboard saved {output.get('created_scenes', 0)} scene(s), "
+                   f"{len(output.get('created_shots') or [])} shot(s)")
+        else:
+            msg = f"{name} done"
+        fixes = output.get("fixed_by_filmlab") if isinstance(output, dict) else None
+        if fixes:
+            msg += f" · FilmLab repaired {len(fixes)} thing(s)"
+        source = "Plan" if name == "plan_storyboard" else "Director"
+        await self.console.add("error" if bad else "info", source, msg, project_id, {"tool": name, "arguments": parsed,
+                                                                                   "result": output})
 
     async def _fail(self, project_id, turn_id, message):
         await self._save(project_id, "error", message)

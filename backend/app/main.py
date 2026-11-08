@@ -14,7 +14,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import VERSION, auth, autonomy_api, creator_api, edit_api, host_api, library_api, music_api, shots, storyboard_api, system_api
+from . import (VERSION, auth, autonomy_api, console_api, creator_api, edit_api, host_api, library_api, music_api, shots,
+               storyboard_api, system_api)
 from . import templates as project_templates
 from .backups import Backups
 from .gpu_stats import GpuMonitor
@@ -40,6 +41,7 @@ from .trash import Trash, TrashError
 from .music_video import MusicVideo, MusicVideoError
 from .wangp.webui import WanGPWebUI
 from .host import Host
+from .console import Console
 from .media import sha256_file
 from .library import Library
 from .presets import Presets
@@ -127,6 +129,8 @@ class Studio:
         self.edit = Edit(self.db, self.bus, self.storyboard, self.library, settings.media_dir)
         self.exporter = Exporter(self.db, self.bus, self.edit, self.library, settings.media_dir)
         self.music = MusicVideo(self)
+        self.console = Console(self.db, self.bus)
+        self.bus.listeners.append(self.console.on_event)
         self.host = Host()
         self.wangp_ui = WanGPWebUI(settings.wangp_url)
         self.renders.webui = self.wangp_ui
@@ -144,6 +148,7 @@ class Studio:
                                  self.director_settings)
         self.runs = Runs(self.db, self.bus, self.renders, self.storyboard, self.edit, self.inspector, self.chat.send)
         self.creator = Creator(self)
+        self.chat.console = self.console
         self.runs.held = self.gpu_held
         self.health.wangp = (self.wangp, None)
         self.renders.gate = self.render_gate
@@ -180,6 +185,7 @@ class Studio:
 
     async def start(self):
         self.settings.media_dir.mkdir(parents=True, exist_ok=True)
+        self.console.start()
         self._connector = asyncio.create_task(self._connect_wangp())
         await self.exporter.resume_all()  # exports only need ffmpeg, not WanGP
         self.backups.start_daily()
@@ -311,6 +317,7 @@ class Studio:
         await self.creator.shutdown()
         await self.wangp.aclose()
         await self.gateway.aclose()
+        self.console.stop()
         self.db.close()
 
 
@@ -413,6 +420,7 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
     app.include_router(system_api.router)
     app.include_router(music_api.router)
     app.include_router(host_api.router)
+    app.include_router(console_api.router)
     owner = Depends(auth.require_owner)
 
     def st(request: Request) -> Studio:

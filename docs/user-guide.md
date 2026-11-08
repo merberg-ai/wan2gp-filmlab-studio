@@ -3,6 +3,7 @@
 How to make a film with FilmLab Studio, screen by screen.
 
 - [The cockpit](#the-cockpit)
+- [Console](#console)
 - [Projects](#projects)
 - [The Library](#the-library)
 - [Create](#create)
@@ -23,12 +24,21 @@ How to make a film with FilmLab Studio, screen by screen.
 
 | Area | What it's for |
 |---|---|
-| **Top bar** | Pages (Projects, Library, Settings, Health & backups, Recently deleted: restore an item, delete it forever, or **Empty Recently deleted…** for everything at once), the FilmLab version, a **WanGP** status light with its queue (and **Events** when live updates are down), live **GPU** and **VRAM** meters, 🔍 **Go to** (Ctrl + K), 🔔 notifications, sign out |
+| **Top bar** | Pages (Projects, Library, Settings, Health & backups, Recently deleted: restore an item, delete it forever, or **Empty Recently deleted…** for everything at once), the FilmLab version, a **WanGP** status light with its queue (and **Events** when live updates are down), live **GPU** and **VRAM** meters, 🔍 **Go to** (Ctrl + K), **>_ Console** (the ` key), 🔔 notifications, sign out |
 | **Project view** | Three panels: **Storyboard**, **Director** chat, **Renders**. On a phone they become tabs |
 
 Everything updates live: progress, new takes and the director's replies appear without reloading. A toast tells you when a render finishes; with 🔔 on, you also get a system notification when FilmLab isn't on screen.
 
 On a wide screen the project's header is one compact row, the **timeline** (length meter and film strip) sits in its own card above the panels so it's always in view, and the three panels (Storyboard, Director, Renders) fill the rest of the window and scroll inside. They can be **resized** by dragging the bars between them (double-click one to reset). **Panels:** in the project header hides or shows each one (a hidden panel is a thin bar you click to bring back), **Focus…** shows one panel only, and **Reset** brings back the default. Your layout is remembered in this browser. Phones show one panel at a time, on tabs.
+
+## Console
+
+**>_** in the top bar (or the ` key) opens the **Console**: what FilmLab is doing in the background, live, one line each. **Full page ↗**, or **Go to → Console**, opens it as a page.
+
+- **What appears:** renders and generations (sent, WanGP's status line, done, failed, stalled), the director's steps and tool calls, plan parts saved or refused (and what FilmLab repaired), WanGP stopping and coming back, take inspections, and FilmLab's own warnings and errors.
+- **Each line:** a time, a level (info, warn, error) and a source (Director, Plan, Render, Create, WanGP, System). Lines with a ▸ open their details, such as the exact plan the director sent and why it was refused, with **Copy**.
+- **Filters:** **All · Warnings · Errors**, a source, **This project** (inside a project) and search. **Pause** stops the scrolling; **Load older lines** goes back in time.
+- **Errors while it's closed:** a red count appears on **>_**.
 
 ## Projects
 
