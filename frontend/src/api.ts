@@ -10,6 +10,7 @@ export interface Project {
   id: string; title: string; logline: string; updated_at: string; shot_count?: number;
   /** For the Projects page's card */
   shots_rendered?: number; seconds?: number; rendering?: boolean; template?: string | null; music_mode?: string | null;
+  created_at?: string;
   cover?: { kind: "take" | "ref"; thumb: string; video?: string; take_id?: string; picked?: boolean } | null;
   cover_take_id?: string | null;
 }

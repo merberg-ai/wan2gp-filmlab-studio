@@ -34,7 +34,9 @@ On a wide screen the project's header is one compact row, the **timeline** (leng
 
 Each project's card on the Projects page shows a picture: the take you chose with **☆ Set as cover**, else the take the edit uses for the opening shot, else the first shot's reference image, else a placeholder. Hover over it to play the cover take. The card also shows the project's template, a **Rendering** badge while something renders, and how many shots there are, how many are rendered and how long the film is.
 
-**Projects → New project.** Give it a title and, optionally, a template:
+Above the cards, search by title or logline, filter by type (template) and stage (not planned, planned, rendering, has renders), and sort (updated, newest, name, most shots, longest). Your choices are remembered in this browser.
+
+**+ New project** opens a form: a title, an optional logline, and a starting point, which is a blank project or a template. **Create and open** takes you straight to it.
 
 | Template | Good for |
 |---|---|
