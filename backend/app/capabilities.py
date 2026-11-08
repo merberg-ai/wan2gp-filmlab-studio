@@ -46,7 +46,13 @@ SETTING_KINDS = {"video_refs": VIDEO_TASKS, "video_plain": ("gen_video",), "imag
 VALIDATE_CONCURRENCY = 4
 # Bumped when the matrix gains tasks or fields: a matrix saved by an older FilmLab is rebuilt on first use
 # (2: the song-driven video models, gen_video_with_speech).
-MATRIX_VERSION = 3  # 3: the voice-cloning models (gen_speech_from_sample)
+MATRIX_VERSION = 4  # 3: the voice-cloning models; 4: song-driven models checked with frames and picture mode
+
+
+def with_refs_mode(video_prompt_type) -> str:
+    """WanGP's input mode that uses image_refs (I), added to a template's own mode."""
+    vpt = str(video_prompt_type or "")
+    return vpt if "I" in vpt else vpt + "I"
 
 
 class CapabilityError(ValueError):
@@ -179,11 +185,12 @@ class Capabilities:
                         settings["image_refs"] = [probe]
                     if row["task"] in CLONE_TASKS:  # clones a voice: give it a short probe sample
                         settings["audio_guide"] = await self._probe_audio()
-                    if row["task"] in SPEECH_VIDEO_TASKS:  # driven by audio: give it a short probe track
-                        settings["video_length"] = 17
+                    if row["task"] in SPEECH_VIDEO_TASKS:  # driven by audio: a probe track, and frames enough for it
+                        settings["video_length"] = 81  # 3 s at 25 fps (Infinitalk refuses a video shorter than its audio)
                         settings["audio_guide"] = await self._probe_audio()
                         if row["refs"] != "none":
                             settings["image_refs"] = [probe]
+                            settings["video_prompt_type"] = with_refs_mode(settings.get("video_prompt_type"))
                     res = await self.wangp.call("wangp_validate", {"settings": settings})
                     task = (res.get("tasks") or [{}])[0]
                     diags = [d for d in res.get("diagnostics", []) if "multiples of" not in d.get("message", "")]

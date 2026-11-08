@@ -509,6 +509,10 @@ function BatchBar({ batch, project, act }: { batch: Batch; project: ProjectDetai
   const known = parts.filter((x): x is number => x != null);
   const left = known.reduce((n, x) => n + Math.max(0, x), 0);
   const curEta = job && current && job.status === "running" ? etaText(job, shotOf(current.shot_id), project.render_rates, now) : null;
+  // the whole batch: finished shots, plus how far the current one is
+  const curFrac = job?.total_steps ? Math.min(1, (job.current_step ?? 0) / job.total_steps) : 0;
+  const overall = batch.items.length ? (done + (current ? curFrac : 0)) / batch.items.length : 0;
+  const failedCount = batch.items.filter((i) => i.status === "failed").length;
   return (
     <div className={`card batch ${batch.status}`}>
       <div className="row">
@@ -527,15 +531,22 @@ function BatchBar({ batch, project, act }: { batch: Batch; project: ProjectDetai
         <p className="small">Starts by itself at <strong>{new Date(batch.start_at).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}</strong>
           {" "}({duration(Math.max(0, (Date.parse(batch.start_at) - now) / 1000))} from now). FilmLab must be running then.</p>
       ) : batch.pause_reason && batch.status === "paused" && <p className="small warn">{batch.pause_reason}</p>}
-      {current && <p className="small">Rendering shot {current.shot_position} “{current.title}”
-        {job?.phase ? ` · ${job.phase.replace(/_/g, " ")}${job.total_steps ? ` ${job.current_step ?? 0}/${job.total_steps}` : ""}`
-          : job?.queue_ahead ? ` · waiting in WanGP's queue: ${job.queue_ahead} ahead` : ""}</p>}
-      {job?.total_steps ? <progress max={job.total_steps} value={job.current_step ?? 0} /> : current ? <progress /> : null}
-      {batch.status === "running" && (curEta || known.length > 0) && (
-        <p className="small muted eta">{curEta && <>This shot: {curEta}. </>}
-          {known.length > 0 && (known.length === parts.length ? `The batch: about ${duration(left)} left.`
-            : `The batch: at least ${duration(left)} left (${parts.length - known.length} shot${parts.length - known.length === 1 ? "" : "s"} use a model with no past renders here).`)}</p>
-      )}
+      <BatchCells batch={batch} curFrac={curFrac} />
+      <div className="batch-summary small">
+        <strong>{Math.round(overall * 100)}%</strong>
+        <span className="muted">{done} of {batch.items.length} shot{batch.items.length === 1 ? "" : "s"} done
+          {failedCount > 0 && <span className="error"> · {failedCount} failed</span>}</span>
+        {batch.status === "running" && known.length > 0 && (
+          <span className="muted grow batch-eta">{known.length === parts.length ? `about ${duration(left)} left` : `at least ${duration(left)} left`}
+            {known.length === parts.length && left > 60 && ` · done around ${new Date(now + left * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}</span>)}
+      </div>
+      {current && <p className="small muted batch-now">Now: shot {current.shot_position} “{current.title}”
+        {job?.status_text && /download/i.test(job.status_text) ? ` · ${job.status_text}`
+          : job?.phase ? ` · ${job.phase.replace(/_/g, " ")}${job.total_steps ? ` ${job.current_step ?? 0}/${job.total_steps}` : ""}`
+          : job?.queue_ahead ? ` · waiting in WanGP's queue: ${job.queue_ahead} ahead` : ""}{curEta && ` · ${curEta}`}
+        {" "}<span className="muted">(its own progress is in the Renders panel)</span></p>}
+      {batch.status === "running" && known.length > 0 && known.length < parts.length && (
+        <p className="small muted">{parts.length - known.length} shot{parts.length - known.length === 1 ? "" : "s"} use a model with no past renders here, so the time left is a minimum.</p>)}
       <ol className="batch-items small">
         {batch.items.map((i) => (
           <li key={i.position} className={`bi-${i.status}`}>
@@ -555,6 +566,20 @@ function BatchBar({ batch, project, act }: { batch: Batch; project: ProjectDetai
           </li>
         ))}
       </ol>
+    </div>
+  );
+}
+
+/** One cell per shot of the batch: done, failed or skipped, rendering (filled as far as it got), or waiting. */
+function BatchCells({ batch, curFrac }: { batch: Batch; curFrac: number }) {
+  const many = batch.items.length > 60;
+  return (
+    <div className={`batch-cells ${many ? "many" : ""}`} role="progressbar" aria-label="Shots rendered"
+      aria-valuemin={0} aria-valuemax={batch.items.length} aria-valuenow={batch.items.filter((i) => i.status === "done").length}>
+      {batch.items.map((i) => (
+        <span key={i.position} className={`bc bc-${i.status}`} title={`${i.shot_position}. ${i.title}: ${ITEM_LABEL[i.status]}`}>
+          {i.status === "rendering" && <i style={{ width: `${Math.round(curFrac * 100)}%` }} />}
+        </span>))}
     </div>
   );
 }

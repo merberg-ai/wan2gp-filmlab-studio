@@ -1109,3 +1109,21 @@ progress::-moz-progress-bar { background: var(--accent); border-radius: 3px; }
   .lvl-warn .c-time { color: var(--warn); } .lvl-error .c-time { color: var(--bad); }
   .console-detail { margin-left: 12px; }
 }
+
+/* Batch progress (Storyboard.tsx): one cell per shot, the whole batch's percentage and time left */
+.batch-cells { display: flex; gap: 3px; height: 10px; margin: 6px 0 4px; }
+.batch-cells.many { gap: 1px; }
+.bc { flex: 1 1 0; min-width: 2px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); position: relative; overflow: hidden; }
+.bc-done { background: var(--accent); }
+.bc-failed { background: var(--bad); }
+.bc-skipped, .bc-cancelled { background: rgba(255, 255, 255, 0.25); }
+.bc-rendering { background: rgba(217, 164, 65, 0.25); }
+.bc-rendering i { position: absolute; inset: 0 auto 0 0; background: var(--accent); opacity: .75; transition: width .4s; }
+.bc-rendering::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.25), transparent);
+  animation: bc-shine 1.6s linear infinite; }
+@keyframes bc-shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .bc-rendering::after { animation: none; } }
+.batch-summary { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.batch-summary strong { color: var(--accent); font-size: 15px; font-variant-numeric: tabular-nums; }
+.batch-eta { text-align: right; }
+.batch-now { margin: 4px 0 0; }

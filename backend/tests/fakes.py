@@ -42,6 +42,7 @@ CATALOGUE = {
         ("Infinitalk", "infinitetalk", ["start", "reference", "multiple_references", "background"], True),
         ("MiniMax H3 Ref2VA Pruned Turbo Lightx2v 8 Steps With Sound", "minimax_h3_ref2va_pruned",
          ["start", "end", "reference", "multiple_references"], False),
+        ("MiniMax H3 FL2VA Pruned PDD 8 Steps With Sound", "minimax_h3_fl2va_pruned_pdd", ["start", "end"], False),
     ],
 }
 AUDIO_MODELS = {"qwen3_tts_voicedesign", "ace_step_v1_5_turbo_lm_1_7b", "index_tts2"}

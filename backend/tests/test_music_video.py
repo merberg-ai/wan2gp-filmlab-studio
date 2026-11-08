@@ -54,7 +54,11 @@ def test_a_song_driven_model_wangp_rejects_isnt_offered(make_harness):
     h = make_harness().login()  # here the Turbo H3's LoRA is missing, so WanGP refuses it
     pid = new_project(h)
     v = h.c.get(f"/api/projects/{pid}/music-video").json()
-    assert [m["template"] for m in v["lipsync_models"]] == ["Infinitalk"] and v["speech_template"] == "Infinitalk"
+    names = [m["template"] for m in v["lipsync_models"]]
+    assert "MiniMax H3 Ref2VA Pruned Turbo Lightx2v 8 Steps With Sound" not in names
+    # H3's reference model following the song comes first; the one without pictures last
+    assert names[0] == "MiniMax H3 Ref2VA Pruned PDD 8 Steps" and names[-1] == "MiniMax H3 FL2VA Pruned PDD 8 Steps With Sound"
+    assert v["speech_template"] == names[0]
 
 
 def test_the_song_becomes_the_soundtrack_and_mutes_the_shots(make_harness):
@@ -181,3 +185,20 @@ def test_wangps_web_page_is_found_on_its_own_port(tmp_path):
     assert asyncio.run(none.locate()) is None
     fixed = WanGPWebUI("http://127.0.0.1:8000/mcp", override="http://studio-pc:7777/", ckpts=str(tmp_path))
     assert asyncio.run(fixed.locate())["url"] == "http://studio-pc:7777/"
+
+
+def test_a_shot_with_references_never_lip_syncs_with_a_model_that_drops_them(make_harness, images):
+    """Live (Smells like Anthony Spirit): the chosen song-driven model took no pictures (H3 FL2VA), so the shots lost
+    Anthony_Retro. A shot with references now uses a song-driven model that takes them: H3 Ref2VA, following the song."""
+    h = make_harness().login()
+    pid = new_project(h)
+    _, _, hv, tv = refs_setup(h, images)
+    s = new_shot(h, pid, title="Verse", frames=73, prompt="<Picture 1> sings in <Picture 2> at dusk")
+    set_refs(h, s["id"], hv, tv)
+    patch(h, f"/api/projects/{pid}/music-video", {"mode": "lipsync", "speech_template": "MiniMax H3 FL2VA Pruned PDD 8 Steps With Sound"})
+    with_song(h, pid, 12.0)
+    h.post(f"/api/shots/{s['id']}/approve-and-render")
+    h.wait_for(lambda: h.project(pid)["takes"], what="take")
+    st = list(h.wangp.jobs.values())[-1]["settings"]
+    assert st["model_type"].startswith("minimax_h3_ref2va") and len(st["image_refs"]) == 2
+    assert st["audio_guide"] and st["audio_prompt_type"] == "AS" and "I" in st["video_prompt_type"]

@@ -25,6 +25,7 @@ from .events import EventBus
 from . import sound
 from .media import probe, sha256_file, thumbnail
 from .music_video import LIPSYNC_WORDING
+from .capabilities import with_refs_mode
 from .wangp.webui import downloading
 from .wangp import errors
 from .wangp.client import WanGPClient, WanGPError
@@ -210,6 +211,9 @@ class RenderService:
         if refs and song.get("refs") != "none":
             ids = [r["wangp_media_id"] for r in refs]
             settings["image_refs"] = ids[:1] if song.get("refs") == "single" else ids
+            settings["video_prompt_type"] = with_refs_mode(settings.get("video_prompt_type"))
+        if str(tpl["model_type"]).startswith("minimax_h3_ref2va"):
+            settings["audio_prompt_type"] = "AS"  # H3: audio_guide is the soundtrack the video follows
         return settings
 
     # Wired by Studio: shot -> (effective template, uploaded refs, blocking issues). Defaults keep tests of

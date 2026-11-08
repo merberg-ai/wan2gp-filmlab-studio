@@ -26,9 +26,12 @@ log = logging.getLogger("filmlab.music_video")
 MODES = ("lipsync", "soundtrack")
 # The song-driven models FilmLab suggests, best first. H3 keeps the performers' look from their pictures (the
 # library references); Infinitalk is a dedicated lip-sync model that uses one picture; LTX-2 follows the timing.
-SUGGESTED = ("MiniMax H3 Ref2VA Pruned Turbo Lightx2v 8 Steps With Sound", "Infinitalk",
+SUGGESTED = ("MiniMax H3 Ref2VA Pruned Turbo Lightx2v 8 Steps With Sound", "MiniMax H3 Ref2VA Pruned PDD 8 Steps",
+             "Infinitalk",
              "MiniMax H3 Ref2VA Pruned PDD 8 Steps With Sound", "LTX-2.3 Distilled 1.0 With Sound")
 NOTES = (  # (model_type prefix, what to know), the first match wins
+    ("minimax_h3_ref2va_pruned_pdd", "Your H3 reference model following the song: performers keep their look from "
+                                     "their pictures."),
     ("minimax_h3_ref2va", "Uses each shot's character and place pictures, so performers keep their look."),
     ("infinitetalk", "A dedicated lip-sync model: the closest mouth movement, long takes; it uses the first picture."),
     ("ltx2", "Uses one picture; follows the song's timing."),
@@ -43,6 +46,19 @@ LIPSYNC_WORDING = "singing with natural lip movements synchronized to the music"
 
 class MusicVideoError(ValueError):
     pass
+
+
+def song_models(matrix: list[dict]) -> list[dict]:
+    """The usable models that can follow a song, best first: WanGP's speech-driven video models, and H3's reference
+    models (gen_video_with_refs) in their soundtrack mode, which keep the performers' look from their pictures.
+    Models that take pictures come first."""
+    out = [t for t in matrix if t["task"] in SPEECH_VIDEO_TASKS and t.get("valid") is not False]
+    names = {t["template"] for t in out}
+    out += [t for t in matrix if t["task"] == "gen_video_with_refs" and t.get("valid") is not False
+            and str(t.get("model_type", "")).startswith("minimax_h3_ref2va") and t["template"] not in names]
+    rank = {name: i for i, name in enumerate(SUGGESTED)}
+    return sorted(out, key=lambda t: (t["refs"] == "none", t.get("installed") is False,
+                                      rank.get(t["template"], len(SUGGESTED)), t["template"]))
 
 
 def note_for(model_type: str) -> str:
@@ -68,10 +84,8 @@ class MusicVideo:
         except Exception:  # noqa: BLE001 - WanGP is down: the setup still opens, without the model list
             log.warning("music video setup: WanGP's models couldn't be listed", exc_info=True)
             matrix = []
-        speech = [t for t in matrix if t["task"] in SPEECH_VIDEO_TASKS and t.get("valid") is not False]
-        rank = {name: i for i, name in enumerate(SUGGESTED)}
-        speech.sort(key=lambda t: (rank.get(t["template"], len(SUGGESTED)), t["template"]))
-        suggested = next((t["template"] for t in speech if t["template"] in rank), speech[0]["template"] if speech else None)
+        speech = song_models(matrix)
+        suggested = speech[0]["template"] if speech else None
         song = None
         if p["song_file_id"]:
             f = await self.db.fetchone("SELECT id, duration_s, mime FROM library_files WHERE id = ?", (p["song_file_id"],))
@@ -99,7 +113,9 @@ class MusicVideo:
             "library_songs": others,
             "lipsync_models": [{"template": t["template"], "model_type": t["model_type"], "installed": t.get("installed"),
                                 "refs": t["refs"], "suggested": t["template"] == suggested,
-                                "note": note_for(t["model_type"])} for t in speech],
+                                "note": note_for(t["model_type"]) + ("" if t["refs"] != "none" else
+                                        " Shots with references use a model that takes pictures instead.")}
+                               for t in speech],
             "song_models": [{"template": t["template"], "installed": t.get("installed")}
                             for t in matrix if t["task"] in MUSIC_TASKS and t.get("valid") is not False],
             "song_model": (await self.s.caps.settings())["music"],
@@ -119,7 +135,7 @@ class MusicVideo:
             sets["song_style"] = self._text(patch["style"], MAX_STYLE, "style")
         if "speech_template" in patch:
             name = patch["speech_template"] or None
-            if name and not any(t["template"] == name and t["task"] in SPEECH_VIDEO_TASKS for t in await self.s.caps.matrix()):
+            if name and not any(t["template"] == name for t in song_models(await self.s.caps.matrix())):
                 raise MusicVideoError(f"{name!r} isn't one of WanGP's song-driven video models")
             sets["speech_template"] = name
         song = None
@@ -209,13 +225,18 @@ class MusicVideo:
         p = await self.db.fetchone("SELECT * FROM projects WHERE id = ?", (shot["project_id"],))
         if not p or p["music_mode"] != "lipsync" or not p["song_file_id"]:
             return None
-        matrix = await self.s.caps.matrix()
-        speech = [t for t in matrix if t["task"] in SPEECH_VIDEO_TASKS and t.get("valid") is not False]
-        name = p["speech_template"] or next((n for n in SUGGESTED if any(t["template"] == n for t in speech)), None)
+        speech = song_models(await self.s.caps.matrix())
+        name = p["speech_template"] or (speech[0]["template"] if speech else None)
         tpl = next((t for t in speech if t["template"] == name), None)
         if not tpl:
             raise MusicVideoError("this music video lip-syncs to its song, but WanGP has no song-driven video model "
                                   f"named {name!r}; choose one in the project's Music video settings")
+        has_refs = await self.db.fetchone("SELECT 1 FROM shot_refs WHERE shot_id = ? LIMIT 1", (shot["id"],))
+        if has_refs and tpl["refs"] == "none":
+            # the chosen model takes no pictures: the shot's characters and places would be lost
+            better = next((t for t in speech if t["refs"] != "none"), None)
+            if better:
+                tpl = better
         start = await self.shot_start(shot)
         seconds = shot_seconds(shot["frames"])
         song = await self.s.library.file(p["song_file_id"])
