@@ -7,10 +7,11 @@ library but only become part of the variant when the owner keeps them.
 """
 
 import json
+import re
 import tempfile
 from pathlib import Path
 
-from .capabilities import AUDIO_TASKS, CLONE_TASKS, IMAGE_TASKS, VIDEO_TASKS, Capabilities
+from .capabilities import AUDIO_TASKS, CLONE_TASKS, IMAGE_TASKS, MUSIC_TASKS, VIDEO_TASKS, Capabilities
 from .media import probe, thumbnail
 from .db import new_id, now
 from .library import Library, LibraryError
@@ -19,6 +20,31 @@ from .renders import ACTIVE, RenderError, RenderService
 from .wangp.client import WanGPError
 
 MAX_CANDIDATES = 4
+
+
+# ACE-Step 1.5's "LM chain of thought" modes: 2 and 3 have its language model rewrite the style caption (it drifts to
+# a generic, mellow pop caption); 1 and 4 keep the owner's words and only fill in the tempo, key and meter.
+_KEEP_CAPTION = {2: 1, 3: 4}
+_BPM = re.compile(r"(?<!\d)(\d{2,3})\s*bpm\b", re.I)
+
+
+def song_settings(settings: dict) -> dict:
+    """A music job's settings, made to follow the owner's style: ACE-Step 1.5 keeps the caption as written, and a
+    tempo written in it ("117 bpm") goes to the model's own BPM control."""
+    out = dict(settings)
+    if not str(out.get("model_type", "")).startswith("ace_step_v1_5"):
+        return out
+    try:
+        mode = int(out.get("model_mode", 0))
+    except (TypeError, ValueError):
+        mode = 0
+    out["model_mode"] = _KEEP_CAPTION.get(mode, mode)
+    m = _BPM.search(str(out.get("alt_prompt") or ""))
+    if m and 30 <= int(m.group(1)) <= 300:
+        custom = dict(out.get("custom_settings") or {})
+        custom["bpm"] = int(m.group(1))
+        out["custom_settings"] = custom
+    return out
 
 
 class ImageJobs(RenderService):
@@ -77,6 +103,8 @@ class ImageJobs(RenderService):
         full = await self.wangp.call("wangp_templates", {"task": entry["task"], "template": template})
         base = dict(full.get("settings") or {}, prompt=prompt) | {k: v for k, v in (extra or {}).items()
                                                                    if k in ("alt_prompt", "duration_seconds")}
+        if entry["task"] in MUSIC_TASKS:
+            base = song_settings(base)
         if resolution and media in ("image", "video"):
             base["resolution"] = resolution
         if media == "video":
