@@ -15,6 +15,8 @@ import { alertOwner, dismissToast, setNotify, showToast, useNotifyState, useToas
 import { CommandPalette } from "./Palette";
 import { useUploads } from "./uploads";
 import { AboutPage } from "./About";
+import { CreatePage } from "./Creator";
+import type { AssetKind } from "./library-api";
 import mark from "./brand/filmlab-mark-64.webp";
 import { WanGPDownBanner } from "./Startup";
 
@@ -30,8 +32,11 @@ function useRoute() {
   if (sheet) return { page: "sheet" as const, id: sheet[1] };
   const m = hash.match(/^#\/p\/([0-9a-f]+)(\/edit)?/);
   if (m) return { page: "project" as const, id: m[1], tab: m[2] ? "edit" as const : "storyboard" as const };
-  const cr = hash.match(/^#\/library\/create\/([0-9a-f]+)/);
-  if (cr) return { page: "library" as const, id: null, creation: cr[1] };
+  // the Create page: #/create[/<kind>], #/create/c/<creation id> (old Library links to a draft land there too)
+  const cr = hash.match(/^#\/(?:library\/create|create\/c)\/([0-9a-f]+)/);
+  if (cr) return { page: "create" as const, kind: "character" as AssetKind, creation: cr[1] };
+  const ck = hash.match(/^#\/create(?:\/(character|location|prop|style|sound))?/);
+  if (ck) return { page: "create" as const, kind: (ck[1] ?? "character") as AssetKind, creation: null };
   const l = hash.match(/^#\/library(?:\/([0-9a-f]+))?/);
   if (l) return { page: "library" as const, id: l[1] ?? null, creation: null };
   if (hash.startsWith("#/settings")) return { page: "settings" as const };
@@ -89,6 +94,7 @@ function Studio({ onLogout }: { onLogout: () => void }) {
         <nav className="nav">
           <a href="#/" className={route.page === "projects" || route.page === "project" ? "on" : ""}>Projects</a>
           <a href="#/library" className={route.page === "library" ? "on" : ""}>Library</a>
+          <a href="#/create" className={route.page === "create" ? "on" : ""}>Create</a>
           <a href="#/settings" className={route.page === "settings" ? "on" : ""}>Settings</a>
           <a href="#/system" className={route.page === "system" ? "on" : ""}>Health &amp; backups</a>
           <a href="#/deleted" className={route.page === "deleted" ? "on" : ""}>Recently deleted</a>
@@ -110,12 +116,13 @@ function Studio({ onLogout }: { onLogout: () => void }) {
       {health && !health.wangp.connected && <WanGPDownBanner />}
       <CommandPalette route={route} />
       {route.page === "project" ? <ProjectView key={route.id} projectId={route.id} tab={route.tab} subscribe={subscribe} />
-        : route.page === "library" ? <LibraryPage assetId={route.id} creationId={route.creation} subscribe={subscribe} />
+        : route.page === "library" ? <LibraryPage assetId={route.id} subscribe={subscribe} />
           : route.page === "settings" ? <SettingsPage />
           : route.page === "deleted" ? <TrashPage />
           : route.page === "system" ? <SystemPage gpu={stream === "live" ? gpu : null} />
           : route.page === "selftest" ? <SelfTestPage />
           : route.page === "about" ? <AboutPage version={health?.version} />
+          : route.page === "create" ? <CreatePage subscribe={subscribe} kind={route.kind} creationId={route.creation} />
           : route.page === "sheet" ? <ContactSheet projectId={route.id} />
             : <Projects subscribe={subscribe} />}
       <footer className="footer muted">Rendering by <a href="https://github.com/deepbeepmeep/Wan2GP" target="_blank" rel="noopener noreferrer">WanGP</a> via its MCP interface · <a href="#/about">About FilmLab Studio</a></footer>

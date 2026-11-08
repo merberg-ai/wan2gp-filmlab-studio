@@ -17,6 +17,7 @@ import { usedTake } from "./FilmStrip";
 import { etaText, useNow } from "./eta";
 import { SELECT_SHOT } from "./Palette";
 import { DownloadNote } from "./WanGPLink";
+import { rememberProject } from "./Creator";
 import { PANEL_LABEL, PANELS, type PanelName, PanelRail, useLayout } from "./layout";
 import { ReviewMode } from "./Review";
 
@@ -47,6 +48,7 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
   const [selectedShot, setSelectedShot] = useState<string | null>(null);
   const [selectedTake, setSelectedTake] = useState<string | null>(null);
   const lay = useLayout();
+  useEffect(() => rememberProject(projectId), [projectId]);  // the Create page sizes pictures for it
   const [error, setError] = useState<string | null>(null);
   const reloadTimer = useRef<number>();
 

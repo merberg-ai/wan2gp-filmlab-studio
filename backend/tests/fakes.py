@@ -36,6 +36,7 @@ CATALOGUE = {
     "edit_image": [("Flux Klein 9B", "flux2_klein_9b", ["reference", "multiple_references", "background"], True)],
     "gen_speech_from_description": [("Qwen3 1.7B", "qwen3_tts_voicedesign", [], True)],
     "gen_song": [("ACE-Step 1.5 Turbo LM 1.7B", "ace_step_v1_5_turbo_lm_1_7b", [], True)],
+    "gen_speech_from_sample": [("Index TTS 2", "index_tts2", [], True)],
     # video driven by an audio track (a music video's song slices): the same H3 model "With Sound", and Infinitalk
     "gen_video_with_speech": [
         ("Infinitalk", "infinitetalk", ["start", "reference", "multiple_references", "background"], True),
@@ -43,7 +44,7 @@ CATALOGUE = {
          ["start", "end", "reference", "multiple_references"], False),
     ],
 }
-AUDIO_MODELS = {"qwen3_tts_voicedesign", "ace_step_v1_5_turbo_lm_1_7b"}
+AUDIO_MODELS = {"qwen3_tts_voicedesign", "ace_step_v1_5_turbo_lm_1_7b", "index_tts2"}
 _AUDIO: list[bytes] = []
 
 
@@ -367,7 +368,7 @@ class FakeGateway:
                 "tags": "android robot", "views": [
                     {"label": "front portrait", "prompt": "Front portrait of a friendly silver android, plain grey background"},
                     {"label": "full body", "prompt": "Full body of the same android standing; keep the same face and colours"}]}
-        if "design the voice" in text:
+        if "design the voice" in text or "voice is cloned" in text:
             plan["voice"] = {"description": "young male android, bright and curious", "line": "Hello! I am awake."}
         return plan
 

@@ -10,7 +10,8 @@ import json
 import tempfile
 from pathlib import Path
 
-from .capabilities import AUDIO_TASKS, IMAGE_TASKS, Capabilities
+from .capabilities import AUDIO_TASKS, CLONE_TASKS, IMAGE_TASKS, VIDEO_TASKS, Capabilities
+from .media import probe, thumbnail
 from .db import new_id, now
 from .library import Library, LibraryError
 from .references import References
@@ -35,9 +36,12 @@ class ImageJobs(RenderService):
     async def submit(self, variant_id: str, prompt: str, actor: str, template: str | None = None,
                      input_file_ids: list[str] | None = None, count: int | None = None,
                      resolution: str | None = None, seed: int | None = None, label: str | None = None,
-                     media: str = "image", extra: dict | None = None) -> dict:
-        """media "audio": a voice (gen_speech_from_description: prompt = the words, extra.alt_prompt = the voice) or
-        music (gen_song: prompt = lyrics or [Instrumental], extra.alt_prompt = the style); template is then required."""
+                     media: str = "image", extra: dict | None = None, audio_file_id: str | None = None,
+                     frames: int | None = None, clip_for: str | None = None) -> dict:
+        """media "audio": a voice (gen_speech_from_description: prompt = the words, extra.alt_prompt = the voice; or
+        gen_speech_from_sample: prompt = the words, audio_file_id = the voice to clone) or music (gen_song: prompt =
+        lyrics or [Instrumental], extra.alt_prompt = the style); template is then required.
+        media "video": a short test clip of a Creator draft (clip_for = its creation id), from its kept images."""
         if self.renders.gate and (held := await self.renders.gate()):
             raise RenderError(held)
         variant = await self.library.variant(variant_id)
@@ -51,12 +55,17 @@ class ImageJobs(RenderService):
             raise RenderError(f"candidates must be 1-{MAX_CANDIDATES}")
         if media == "audio" and (input_file_ids or not template):
             raise RenderError("audio generation takes a voice or music template and no images")
+        if media == "video" and (not template or not clip_for):
+            raise RenderError("a test clip needs a video template and its creation")
         template = template or settings_cfg["image_refs" if input_file_ids else "image_text"]
         matrix = await self.caps.matrix()
+        tasks = AUDIO_TASKS if media == "audio" else VIDEO_TASKS if media == "video" else IMAGE_TASKS
         try:
-            entry = self.caps.ensure_usable(matrix, template, AUDIO_TASKS if media == "audio" else IMAGE_TASKS)
+            entry = self.caps.ensure_usable(matrix, template, tasks)
         except ValueError as exc:
             raise RenderError(str(exc)) from exc
+        if entry["task"] in CLONE_TASKS and not audio_file_id:
+            raise RenderError(f"{template} clones a voice: upload a voice sample first")
         if input_file_ids and entry["refs"] == "none":
             raise RenderError(f"{template} takes no reference images; pick one that does, e.g. {settings_cfg['image_refs']}")
         inputs = []
@@ -68,10 +77,18 @@ class ImageJobs(RenderService):
         full = await self.wangp.call("wangp_templates", {"task": entry["task"], "template": template})
         base = dict(full.get("settings") or {}, prompt=prompt) | {k: v for k, v in (extra or {}).items()
                                                                    if k in ("alt_prompt", "duration_seconds")}
-        if resolution and media == "image":
+        if resolution and media in ("image", "video"):
             base["resolution"] = resolution
+        if media == "video":
+            base["video_length"] = int(frames or 49)
         if inputs:
             base["image_refs"] = [i["wangp_media_id"] for i in inputs]
+        if audio_file_id:  # the voice to clone
+            sample = await self.library.file(audio_file_id)
+            if sample["kind"] != "audio":
+                raise RenderError("the voice sample must be an audio file")
+            base["audio_guide"] = await self.refs.wangp_id(sample)
+            base.setdefault("audio_prompt_type", "A")
         # One submission with a settings list: WanGP queues the candidates together, in order.
         batch = [base | {"seed": seed + i if seed is not None and seed >= 0 else -1} for i in range(count)]
         job_id = new_id()
@@ -80,6 +97,8 @@ class ImageJobs(RenderService):
             "input_file_ids, status, submitted_at, label, media) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitting', ?, ?, ?)",
             (job_id, variant["asset_id"], variant_id, f"filmlab-img-{job_id}", json.dumps(batch), template, prompt,
              count, json.dumps(inputs), now(), (str(label).strip()[:80] or None) if label else None, media))
+        if clip_for:
+            await self.db.kv_set(f"clip_for:{job_id}", clip_for)
         await self.db.audit(actor, "image.submit", variant_id, {"job_id": job_id, "template": template, "count": count})
         try:
             await self._submit_to_wangp(job_id)
@@ -96,6 +115,8 @@ class ImageJobs(RenderService):
 
     async def _ingest_outputs(self, job_id: str, finals: list[dict]):
         job = await self.job(job_id)
+        if job.get("media") == "video":
+            return await self._ingest_clips(job, finals)
         inputs = json.loads(job["input_file_ids"])
         stored = 0
         for item in finals:
@@ -119,6 +140,34 @@ class ImageJobs(RenderService):
         if not stored:
             return await self._finish(job_id, "failed", error="WanGP finished but no usable image came back")
         return await self._finish(job_id, "done")
+
+    async def _ingest_clips(self, job: dict, finals: list[dict]):
+        """A Creator draft's test clip: kept with the draft (it isn't project media and the Library holds no video)."""
+        creation_id = await self.db.kv_get(f"clip_for:{job['id']}")
+        stored = 0
+        for item in finals:
+            clip_id = new_id()
+            rel = Path("creator") / str(creation_id) / f"{clip_id}.mp4"
+            thumb_rel = rel.with_suffix(".jpg")
+            path = self.media_dir / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            await self.wangp.download(item["media_id"], path)
+            meta = await probe(path)
+            try:
+                await thumbnail(path, self.media_dir / thumb_rel, at_s=min(1.0, (meta["duration_s"] or 2) / 2))
+            except Exception:  # noqa: BLE001 - a clip without a thumbnail still plays
+                thumb_rel = None
+            await self.db.execute(
+                "INSERT INTO creation_clips (id, creation_id, job_id, rel_path, thumb_rel_path, duration_s, width, height, "
+                "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (clip_id, creation_id, job["id"], str(rel), str(thumb_rel) if thumb_rel else None, meta["duration_s"],
+                 meta["width"], meta["height"], now()))
+            stored += 1
+        await self.db.kv_set(f"clip_for:{job['id']}", None)
+        if not stored:
+            return await self._finish(job["id"], "failed", error="WanGP finished but no clip came back")
+        await self.bus.publish("creation.updated", {"creation_id": creation_id})
+        return await self._finish(job["id"], "done")
 
     async def _target_outcome(self, job: dict, status: str):
         return None  # the variant only changes when the owner keeps a candidate

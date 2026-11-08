@@ -17,10 +17,13 @@ const SETTINGS: { key: keyof TemplateSettings; label: string; hint: string; fits
   { key: "voice_design", label: "Voice, from a description", hint: "The Creator designs a character's voice with it",
     fits: (c) => c.task === "gen_speech_from_description" },
   { key: "music", label: "Music", hint: "The Creator makes sound assets (music) with it", fits: (c) => c.task === "gen_song" },
+  { key: "voice_clone", label: "Voice, cloned from a sample", hint: "The Creator clones a character's voice from your recording with it, and says test lines",
+    fits: (c) => c.task === "gen_speech_from_sample" },
 ];
 const TASK_LABEL: Record<Capability["task"], string> = {
   gen_video: "Video", gen_video_with_refs: "Video with references", gen_image: "Image", edit_image: "Image editing",
-  gen_speech_from_description: "Voice design", gen_song: "Music",
+  gen_speech_from_description: "Voice design", gen_song: "Music", gen_speech_from_sample: "Voice cloning",
+  gen_video_with_speech: "Video from a song or speech",
 };
 
 export function SettingsPage() {

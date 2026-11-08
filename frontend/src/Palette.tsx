@@ -84,6 +84,7 @@ function PaletteDialog({ route, onClose }: { route: Route; onClose: () => void }
     all.push(
       { key: "p-home", group: "Go to", label: "Projects", run: go("#/") },
       { key: "p-lib", group: "Go to", label: "Library", run: go("#/library") },
+      { key: "p-create", group: "Go to", label: "Create (character, location, prop, style, sound)", run: go("#/create") },
       { key: "p-set", group: "Go to", label: "Settings", run: go("#/settings") },
       { key: "p-sys", group: "Go to", label: "Health & backups", run: go("#/system") },
       { key: "p-del", group: "Go to", label: "Recently deleted", run: go("#/deleted") },

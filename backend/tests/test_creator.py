@@ -133,3 +133,66 @@ def test_emptying_recently_deleted_removes_discarded_and_deleted_creator_assets(
     assert h.c.get("/api/trash").json()["assets"] == []
     left = h.c.portal.call(h.studio.db.fetchone, "SELECT COUNT(*) AS n FROM creations")["n"]
     assert left == 0
+
+
+def test_the_create_page_options_size_one_view_cloned_voice_test_line_clip_and_approve_into_a_project(make_harness):
+    import subprocess
+    from tests.test_api import new_project, new_shot
+    h = make_harness().login()
+    r = post(h, "/api/creations", {"kind": "character", "brief": "A friendly young android who just woke up in a lab",
+                                   "resolution": "720x1280", "voice_mode": "clone"})
+    assert r.status_code == 201, r.text
+    c = ready(h, r.json()["id"])
+    assert (c["resolution"], c["voice_mode"]) == ("720x1280", "clone")
+    assert post(h, "/api/creations", {"kind": "prop", "brief": "a brass lab switch, big", "resolution": "99x99"}).status_code == 422
+    # pictures at the draft's size; one view can be made again on its own
+    post(h, f"/api/creations/{c['id']}/generate", {"part": "anchor"})
+    finish(h, c, "front portrait")
+    gen = lambda: [a for n, a in h.wangp.calls if n == "wangp_generate"][-1]["settings"]  # noqa: E731
+    assert gen()[0]["resolution"] == "720x1280"
+    r = post(h, f"/api/creations/{c['id']}/generate", {"part": "view", "index": 1, "count": 2})
+    assert r.status_code == 201 and len(gen()) == 2 and gen()[0]["image_refs"]
+    assert post(h, f"/api/creations/{c['id']}/generate", {"part": "view", "index": 3}).status_code == 422
+    # size can change between generations
+    r = h.c.patch(f"/api/creations/{c['id']}/settings", json={"resolution": "1280x720"}, headers={"x-csrf-token": h.csrf})
+    assert r.status_code == 200 and r.json()["resolution"] == "1280x720"
+    # a cloned voice needs its sample first
+    assert post(h, f"/api/creations/{c['id']}/generate", {"part": "voice"}).status_code == 422
+    wav = subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=200:duration=6", "-f", "wav", "-"],
+                         capture_output=True, check=True).stdout
+    r = h.c.put(f"/api/creations/{c['id']}/voice-sample", content=wav,
+                headers={"x-csrf-token": h.csrf, "content-type": "application/octet-stream"})
+    assert r.status_code == 200 and r.json()["voice_sample_file_id"], r.text
+    assert post(h, f"/api/creations/{c['id']}/generate", {"part": "voice"}).status_code == 201
+    v = gen()[0]
+    assert v["model_type"] == "index_tts2" and v["audio_guide"] and v["prompt"] == "Hello! I am awake."
+    finish(h, c, "voice")
+    assert asset(h, c)["voice"]  # kept: the character's voice
+    # hear it say a line
+    assert post(h, f"/api/creations/{c['id']}/generate", {"part": "say", "line": "Where am I?"}).status_code == 201
+    assert gen()[0]["prompt"] == "Where am I?" and gen()[0]["audio_guide"]
+    # a test clip from the kept pictures, kept with the draft
+    assert post(h, f"/api/creations/{c['id']}/generate", {"part": "clip"}).status_code == 201
+    clip = gen()[0]
+    assert clip["image_refs"] and clip["video_length"] == 73 and "<Picture 1>" in clip["prompt"]
+    c2 = h.wait_for(lambda: (x := h.c.get(f"/api/creations/{c['id']}").json())["clips"] and x, what="test clip")
+    f = h.c.get(f"/api/creations/{c['id']}/clips/{c2['clips'][0]['id']}")
+    assert f.status_code == 200 and f.headers["content-type"] == "video/mp4"
+    # approve into a project's cast and onto a shot
+    pid = new_project(h)
+    shot = new_shot(h, pid, template=None)
+    r = post(h, f"/api/creations/{c['id']}/approve", {"project_id": pid, "shot_id": shot["id"]})
+    assert r.status_code == 200, r.text
+    proj = h.project(pid)
+    assert c["asset_id"] in [a["id"] for a in proj["cast"]]
+    assert [x["asset_id"] for x in proj["shots"][0]["refs"]] == [c["asset_id"]]
+
+
+def test_an_ambience_sound_is_drafted_as_a_soundscape(make_harness):
+    h = make_harness().login()
+    r = post(h, "/api/creations", {"kind": "sound", "brief": "Rain on a tin roof at night, distant thunder",
+                                   "sound_type": "ambience"})
+    assert r.status_code == 201, r.text
+    ready(h, r.json()["id"])
+    brief = next(m for m in h.gateway.requests if "AMBIENCE" in m["messages"][0]["content"])
+    assert "no melody, no vocals" in brief["messages"][0]["content"]

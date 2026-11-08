@@ -36,10 +36,14 @@ export interface CreationPlan {
   voice: { description: string; line: string } | null;
   music: { style: string; lyrics: string; seconds: number } | null;
 }
+export interface CreationClip { id: string; duration_s: number | null; width: number | null; height: number | null; created_at: string; has_thumb: number }
+export type CreationPart = "anchor" | "view" | "views" | "voice" | "say" | "music" | "clip";
 export interface Creation {
   id: string; asset_id: string; kind: AssetKind; brief: string; plan: CreationPlan | null; image_template: string;
   edit_template: string; status: "drafting" | "ready" | "approved" | "discarded"; error: string | null;
   created_at: string; updated_at: string; asset?: { id: string; name: string; kind: AssetKind } | null;
+  resolution?: string | null; voice_mode?: "design" | "clone" | null; voice_sample_file_id?: string | null;
+  sound_type?: "music" | "ambience" | null; clips?: CreationClip[];
 }
 export interface ImageRequest {
   id: string; variant_id: string; requested_by: string; prompt: string; input_file_ids: string[]; count: number; note: string;
@@ -49,7 +53,8 @@ export interface AssetDetail extends Asset {
   variants: Variant[]; images: { jobs: ImageJob[]; candidates: Candidate[] }; image_requests: ImageRequest[];
 }
 export interface Capability {
-  task: "gen_video" | "gen_video_with_refs" | "gen_image" | "edit_image" | "gen_speech_from_description" | "gen_song";
+  task: "gen_video" | "gen_video_with_refs" | "gen_image" | "edit_image" | "gen_speech_from_description" | "gen_song"
+    | "gen_speech_from_sample" | "gen_video_with_speech";
   template: string; model_type: string;
   refs: "none" | "single" | "multiple"; requires_refs: boolean; audio: boolean; start_end: boolean;
   valid: boolean; installed: boolean | null; reason: string | null; specialities: string[];
@@ -57,7 +62,7 @@ export interface Capability {
 }
 export interface TemplateSettings {
   video_refs: string; video_plain: string; image_text: string; image_refs: string; image_candidates: number;
-  voice_design?: string; music?: string;
+  voice_design?: string; music?: string; voice_clone?: string;
 }
 export interface Capabilities { built_at: string | null; templates: Capability[]; settings: TemplateSettings }
 export interface GenerateRequest {
@@ -137,13 +142,19 @@ export const lib = {
     request<ImageJob>("POST", `/api/library/variants/${variantId}/generate`, g),
   creations: () => request<Creation[]>("GET", "/api/creations"),
   creation: (id: string) => request<Creation>("GET", `/api/creations/${id}`),
-  startCreation: (c: { kind: AssetKind; brief: string; image_template?: string; edit_template?: string; voice?: boolean }) =>
+  startCreation: (c: { kind: AssetKind; brief: string; image_template?: string; edit_template?: string; voice?: boolean;
+    resolution?: string; voice_mode?: "design" | "clone"; sound_type?: "music" | "ambience" }) =>
     request<Creation>("POST", "/api/creations", c),
+  creationSettings: (id: string, s: { resolution?: string; voice_mode?: "design" | "clone"; image_template?: string; edit_template?: string }) =>
+    request<Creation>("PATCH", `/api/creations/${id}/settings`, s),
+  creationVoiceSample: (id: string, file: File) => sendFile<Creation>("PUT", `/api/creations/${id}/voice-sample`, file),
+  clipUrl: (creationId: string, clipId: string, thumb = false) => `/api/creations/${creationId}/clips/${clipId}${thumb ? "?thumb=true" : ""}`,
   updateCreationPlan: (id: string, plan: CreationPlan) => request<Creation>("PUT", `/api/creations/${id}/plan`, { plan }),
   redraftCreation: (id: string, voice = true) => request<Creation>("POST", `/api/creations/${id}/redraft`, { voice }),
-  generateCreation: (id: string, part: "anchor" | "views" | "voice" | "music", count?: number) =>
-    request("POST", `/api/creations/${id}/generate`, { part, ...(count ? { count } : {}) }),
-  approveCreation: (id: string) => request<Creation>("POST", `/api/creations/${id}/approve`),
+  generateCreation: (id: string, part: CreationPart, opts: { count?: number; index?: number; line?: string } = {}) =>
+    request("POST", `/api/creations/${id}/generate`, { part, ...opts }),
+  approveCreation: (id: string, to: { project_id?: string; shot_id?: string } = {}) =>
+    request<Creation>("POST", `/api/creations/${id}/approve`, to),
   discardCreation: (id: string) => request<Creation>("POST", `/api/creations/${id}/discard`),
   keep: (id: string, meta: FileMeta = {}) => request("POST", `/api/library/candidates/${id}/keep`, meta),
   discard: (id: string) => request("POST", `/api/library/candidates/${id}/discard`),

@@ -19,12 +19,13 @@ from .wangp.client import WanGPClient, WanGPError
 log = logging.getLogger("filmlab.capabilities")
 
 TASKS = ("gen_video", "gen_video_with_refs", "gen_image", "edit_image", "gen_speech_from_description", "gen_song",
-         "gen_video_with_speech")
+         "gen_video_with_speech", "gen_speech_from_sample")
 VIDEO_TASKS = ("gen_video", "gen_video_with_refs")
 IMAGE_TASKS = ("gen_image", "edit_image")
 VOICE_TASKS = ("gen_speech_from_description",)  # a voice designed from a description (the Creator)
+CLONE_TASKS = ("gen_speech_from_sample",)  # a voice cloned from a sample the owner uploads (the Creator)
 MUSIC_TASKS = ("gen_song",)
-AUDIO_TASKS = VOICE_TASKS + MUSIC_TASKS
+AUDIO_TASKS = VOICE_TASKS + MUSIC_TASKS + CLONE_TASKS
 # Video driven by an existing audio track (a music video's song, slice by slice): the mouth follows the audio.
 SPEECH_VIDEO_TASKS = ("gen_video_with_speech",)
 OPTIONAL_TASKS = AUDIO_TASKS + SPEECH_VIDEO_TASKS  # an older WanGP without them: the rest still works
@@ -37,13 +38,15 @@ DEFAULTS = {
     "image_candidates": 2,
     "voice_design": "Qwen3 1.7B",
     "music": "ACE-Step 1.5 Turbo LM 1.7B",
+    "voice_clone": "Index TTS 2",
 }
 SETTING_KINDS = {"video_refs": VIDEO_TASKS, "video_plain": ("gen_video",), "image_text": ("gen_image",),
-                 "image_refs": IMAGE_TASKS, "voice_design": VOICE_TASKS, "music": MUSIC_TASKS}
+                 "image_refs": IMAGE_TASKS, "voice_design": VOICE_TASKS, "music": MUSIC_TASKS,
+                 "voice_clone": CLONE_TASKS}
 VALIDATE_CONCURRENCY = 4
 # Bumped when the matrix gains tasks or fields: a matrix saved by an older FilmLab is rebuilt on first use
 # (2: the song-driven video models, gen_video_with_speech).
-MATRIX_VERSION = 2
+MATRIX_VERSION = 3  # 3: the voice-cloning models (gen_speech_from_sample)
 
 
 class CapabilityError(ValueError):
@@ -174,6 +177,8 @@ class Capabilities:
                         settings["duration_seconds"] = 8
                     if row["requires_refs"] or (row["task"] == "edit_image" and row["refs"] != "none"):
                         settings["image_refs"] = [probe]
+                    if row["task"] in CLONE_TASKS:  # clones a voice: give it a short probe sample
+                        settings["audio_guide"] = await self._probe_audio()
                     if row["task"] in SPEECH_VIDEO_TASKS:  # driven by audio: give it a short probe track
                         settings["video_length"] = 17
                         settings["audio_guide"] = await self._probe_audio()

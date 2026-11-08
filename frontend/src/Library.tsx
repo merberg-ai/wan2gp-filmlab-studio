@@ -2,7 +2,6 @@ import { type DragEvent, type FormEvent, useCallback, useEffect, useMemo, useRef
 import { ask } from "./Dialog";
 import type { Listener } from "./App";
 import { ImagePicker, type Pick } from "./ImagePicker";
-import { CreationView, CreatorPanel } from "./Creator";
 import {
   type Asset, type AssetDetail, type AssetKind, type Capability, type ImageJob, KIND_LABEL, KINDS, lib, type LibFile,
   templateLabel, type TemplateSettings, type Usage, usageWarning, type Variant,
@@ -15,7 +14,7 @@ type Act = (fn: () => Promise<unknown>) => Promise<void>;
 const MAX_IMAGE_REFS = 4;
 const ACTIVE = new Set(["submitting", "queued", "running", "cancelling", "restored"]);
 
-export function LibraryPage({ assetId, creationId, subscribe }: { assetId: string | null; creationId?: string | null; subscribe: Subscribe }) {
+export function LibraryPage({ assetId, subscribe }: { assetId: string | null; subscribe: Subscribe }) {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<AssetKind | "">("");
@@ -40,7 +39,8 @@ export function LibraryPage({ assetId, creationId, subscribe }: { assetId: strin
           ))}
         </div>
         {error && <p className="error">{error}</p>}
-        <CreatorPanel subscribe={subscribe} current={creationId ?? null} />
+        <a className="primary create-btn button-link" href="#/create"
+          title="Describe it; the director drafts it and WanGP makes its pictures, voice or music">✨ Create with the director…</a>
         <NewAsset onCreated={(a) => { location.hash = `#/library/${a.id}`; load(); }} />
         <ul className="asset-list">
           {assets.map((a) => (
@@ -55,8 +55,7 @@ export function LibraryPage({ assetId, creationId, subscribe }: { assetId: strin
           {assets.length === 0 && <li className="muted small">Nothing here yet.</li>}
         </ul>
       </section>
-      {creationId ? <CreationView key={creationId} id={creationId} subscribe={subscribe} />
-        : assetId ? <AssetView key={assetId} id={assetId} subscribe={subscribe} />
+      {assetId ? <AssetView key={assetId} id={assetId} subscribe={subscribe} />
         : <section className="panel"><p className="muted">Pick an asset, or create one: ✨ Create with the director drafts a
           character, location, prop, style or music from your description and makes its reference images with WanGP; or add one
           yourself and upload its images.</p></section>}
