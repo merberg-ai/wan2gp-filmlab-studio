@@ -14,6 +14,8 @@ import { Projects } from "./Projects";
 import { alertOwner, dismissToast, setNotify, showToast, useNotifyState, useToasts } from "./notify";
 import { CommandPalette } from "./Palette";
 import { useUploads } from "./uploads";
+import { AboutPage } from "./About";
+import mark from "./brand/filmlab-mark-64.webp";
 import { WanGPDownBanner } from "./Startup";
 
 // Hash routes: #/ (projects) and #/p/<id> (project workspace).
@@ -36,6 +38,7 @@ function useRoute() {
   if (hash.startsWith("#/deleted")) return { page: "deleted" as const };
   if (hash.startsWith("#/system")) return { page: "system" as const };
   if (hash.startsWith("#/selftest")) return { page: "selftest" as const };
+  if (hash.startsWith("#/about")) return { page: "about" as const };
   return { page: "projects" as const };
 }
 
@@ -81,7 +84,7 @@ function Studio({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="shell">
       <header className="topbar">
-        <a className="brand" href="#/">FilmLab <span>Studio</span></a>
+        <a className="brand" href="#/"><img className="brand-mark" src={mark} alt="" width={26} height={26} />FilmLab <span>Studio</span></a>
         {health?.version && <span className="version muted" title="FilmLab version">v{health.version}</span>}
         <nav className="nav">
           <a href="#/" className={route.page === "projects" || route.page === "project" ? "on" : ""}>Projects</a>
@@ -111,9 +114,10 @@ function Studio({ onLogout }: { onLogout: () => void }) {
           : route.page === "deleted" ? <TrashPage />
           : route.page === "system" ? <SystemPage gpu={stream === "live" ? gpu : null} />
           : route.page === "selftest" ? <SelfTestPage />
+          : route.page === "about" ? <AboutPage version={health?.version} />
           : route.page === "sheet" ? <ContactSheet projectId={route.id} />
             : <Projects subscribe={subscribe} />}
-      <footer className="footer muted">Rendering by WanGP (deepbeepmeep/WanGP) via its MCP interface.</footer>
+      <footer className="footer muted">Rendering by <a href="https://github.com/deepbeepmeep/Wan2GP" target="_blank" rel="noopener noreferrer">WanGP</a> via its MCP interface · <a href="#/about">About FilmLab Studio</a></footer>
     </div>
   );
 }
