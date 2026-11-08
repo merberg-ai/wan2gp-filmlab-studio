@@ -5,7 +5,7 @@ How to make a film with FilmLab Studio, screen by screen.
 - [The cockpit](#the-cockpit)
 - [Projects](#projects)
 - [The Library](#the-library)
-- [The Creator](#the-creator)
+- [Create](#create)
 - [Planning with the director](#planning-with-the-director)
 - [The storyboard](#the-storyboard)
 - [Shots](#shots)
