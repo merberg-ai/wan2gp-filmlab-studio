@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎬 FilmLab Studio
+<img src="docs/images/filmlab-logo.webp" alt="FilmLab Studio" width="600">
 
 **An AI film studio that runs on your own PC.**
 Describe a film. An AI director plans the scenes, shots, dialogue and sound. [WanGP](https://github.com/deepbeepmeep/Wan2GP) renders them on your GPU.
