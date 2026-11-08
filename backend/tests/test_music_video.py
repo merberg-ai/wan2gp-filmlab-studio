@@ -222,3 +222,17 @@ def test_a_new_project_size_can_be_given_to_the_existing_shots(make_harness):
                                             "fields": {"resolution": "1280x720"}}).json()
     assert r["done"] == [a["id"]] and [x["shot_id"] for x in r["skipped"]] == [b["id"]]
     assert {s["id"]: s["resolution"] for s in h.project(pid)["shots"]} == {a["id"]: "1280x720", b["id"]: "832x480"}
+
+
+def test_a_finished_render_marks_its_model_downloaded(make_harness, images):
+    """Live: WanGP downloaded H3 Ref2VA Pruned PTD on its first render, but the Music video settings still said
+    "Not downloaded" (the matrix is only asked once). A finished render now marks its model as downloaded."""
+    h = make_harness().login()
+    pid = new_project(h)
+    caps = lambda: {t["template"]: t for t in h.c.portal.call(h.studio.caps.matrix)}
+    name = "MiniMax H3 FL2VA Pruned PDD 8 Steps"
+    assert caps()[name]["installed"] is False
+    s = new_shot(h, pid, title="Wide", frames=73, template=name, prompt="Fog over the trench at dusk, wide")
+    h.post(f"/api/shots/{s['id']}/approve-and-render")
+    h.wait_for(lambda: h.project(pid)["takes"], what="take")
+    h.wait_for(lambda: caps()[name]["installed"] is True, what="marked downloaded")

@@ -154,7 +154,7 @@ class Studio:
         self.runs.held = self.gpu_held
         self.health.wangp = (self.wangp, None)
         self.renders.gate = self.render_gate
-        self.renders.listeners += [self.runs.job_finished, self._inspect_new_take]
+        self.renders.listeners += [self.runs.job_finished, self._inspect_new_take, self._model_downloaded]
         self.gpu = GpuMonitor(self.bus, **({"query": gpu_query} if gpu_query else {}))
         self.wangp_ready = asyncio.Event()
         self._connector: asyncio.Task | None = None
@@ -296,6 +296,14 @@ class Studio:
                             log.info("hold: cancel of %s: %s", j["id"], exc)
         await self.bus.publish("gpu.hold", {"on": bool(on)})
         return {"on": bool(on), "cancelled": cancelled}
+
+    async def _model_downloaded(self, job: dict, status: str):
+        if status != "done":
+            return
+        settings = job.get("settings")
+        if isinstance(settings, str):
+            settings = json.loads(settings or "{}")
+        await self.caps.mark_installed((settings or {}).get("model_type", ""))
 
     async def _inspect_new_take(self, job: dict, status: str):
         if status == "done":

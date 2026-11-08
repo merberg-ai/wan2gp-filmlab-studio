@@ -131,6 +131,22 @@ class Capabilities:
                                                          "version": MATRIX_VERSION})
             return templates
 
+    async def mark_installed(self, model_type: str) -> bool:
+        """A render with this model finished, so WanGP has its files now (it downloads them on first use): the saved
+        matrix stops calling it "not downloaded" without waiting for the next refresh."""
+        async with self._lock:
+            cached = await self.db.kv_get("capabilities.matrix")
+            if not cached or not model_type:
+                return False
+            changed = False
+            for t in cached["templates"]:
+                if t.get("model_type") == model_type and t.get("installed") is False:
+                    t["installed"] = True
+                    changed = True
+            if changed:
+                await self.db.kv_set("capabilities.matrix", cached)
+            return changed
+
     async def built_at(self) -> str | None:
         cached = await self.db.kv_get("capabilities.matrix")
         return cached and cached.get("built_at")
