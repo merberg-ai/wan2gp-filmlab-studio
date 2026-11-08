@@ -48,7 +48,7 @@ Above the cards, search by title or logline, filter by type (template) and stage
 A template pre-fills the brief's hints, the style and sensible defaults. Open **⚙ Settings** in the project header (or click any of the chips next to it) to change:
 
 - the title and logline;
-- the default **size and length** of new shots;
+- the default **size and length** of new shots. Size is picked like in WanGP: a category (1080p, 720p, 540p, 480p, …) and then one of its sizes, with its aspect ratio and whether it's landscape, portrait or square. A shot's editor and **Select → Change…** use the same picker;
 - the **autonomy level** (see [below](#autonomy-and-redo-runs));
 - the **video models** this project uses for shots with and without references.
 

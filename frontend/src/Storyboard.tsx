@@ -5,7 +5,7 @@ import { lib } from "./library-api";
 import { ACTIVE_JOB, PREVIEW_HINT, ShotCard, ShotEditor } from "./Shots";
 import { RedoPanel } from "./Autonomy";
 import { deleteWithUndo } from "./bulk";
-import { SIZES } from "./ProjectSettings";
+import { ResolutionPicker } from "./ResolutionPicker";
 import { showToast } from "./notify";
 import { templateOptions } from "./ShotRefs";
 import { FilmStrip } from "./FilmStrip";
@@ -437,12 +437,9 @@ function BulkBar({ project, templates, shotIds, sceneIds, act, onPick, onClear, 
               {refs.length > 0 && <optgroup label="With references">{refs.map((t) => <option key={t.template} value={t.template}>{t.template}</option>)}</optgroup>}
             </select>
           </label>
-          <label className="small">Size
-            <select value={f.resolution} onChange={(e) => setF({ ...f, resolution: e.target.value })}>
-              <option value={KEEP}>Keep each shot's</option>
-              {SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </label>
+          <div className="small sm-field">Size
+            <ResolutionPicker value={f.resolution} keep={{ value: KEEP, label: "Keep each shot's" }}
+              onChange={(resolution) => setF({ ...f, resolution })} /></div>
           <label className="small">Length (s)
             <input type="number" min={1} max={20} step={0.5} placeholder="keep" value={f.seconds}
               onChange={(e) => setF({ ...f, seconds: e.target.value })} />

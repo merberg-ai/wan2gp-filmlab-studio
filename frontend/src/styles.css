@@ -988,3 +988,11 @@ progress::-moz-progress-bar { background: var(--accent); border-radius: 3px; }
   .projects-toolbar select { flex: 1 1 0; min-width: 0; }
 }
 .sm-body { align-content: start; }  /* a short form in a full-screen phone modal stays packed at the top */
+
+/* Size picker (ResolutionPicker.tsx): category, then size */
+.res-picker { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.res-picker select { width: auto; flex: 1 1 auto; min-width: 0; }
+.res-picker select:first-child { flex: 0 1 auto; }
+.sm-field { display: grid; gap: 4px; min-width: 0; }
+.sm-wide { grid-column: 1 / -1; }
+.sm-body .sm-field { font-size: 13px; }

@@ -3,12 +3,12 @@ import { ask, dialogOpen, trapTab, useModalFrame } from "./Dialog";
 import { api, type ProjectDetail } from "./api";
 import { type Capability, lib, templateLabel } from "./library-api";
 import { AUTONOMY } from "./Autonomy";
+import { ResolutionPicker } from "./ResolutionPicker";
 import { MusicVideoSetupModal, setupDismissed } from "./MusicVideo";
 
 type Act = (fn: () => Promise<unknown>) => Promise<void>;
 type Section = "basics" | "shots" | "models" | "director" | "danger";
 type Autonomy = ProjectDetail["autonomy"];
-export const SIZES = ["1280x720", "720x1280", "960x544", "832x480", "1024x1024"];
 const framesFor = (secs: number) => Math.round(Math.round(secs * 24) / 8) * 8 + 1;
 const secsFor = (frames: number) => Number(((frames - 1) / 24).toFixed(1));
 const BUSY = ["submitting", "queued", "running", "cancelling", "restored"];
@@ -167,11 +167,9 @@ function SettingsModal({ project, act, section, onClose }: {
           <section ref={reg("shots")}>
             <h4>New shots</h4>
             <div className="sm-grid">
-              <label>Size
-                <select value={f.size} onChange={(e) => setF({ ...f, size: e.target.value })}>
-                  {[...new Set([f.size, ...SIZES])].map((r) => <option key={r}>{r}</option>)}
-                </select>
-              </label>
+              <div className="sm-field sm-wide"><span>Size</span>
+                <ResolutionPicker value={f.size} onChange={(size) => setF({ ...f, size })} />
+              </div>
               <label>Length (s)
                 <input type="number" min={0.5} max={20} step={0.5} value={f.secs} onChange={(e) => setF({ ...f, secs: Number(e.target.value) })} />
               </label>

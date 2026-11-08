@@ -5,7 +5,7 @@ import { ask, askText } from "./Dialog";
 import { api, type Job, type Revision, type Shot, type ShotIssue, type Take, type Template, type Validation, seconds, type ShotSound, transitionLabel } from "./api";
 import { goShot } from "./Palette";
 import { ImagePicker, type Pick } from "./ImagePicker";
-import { SIZES } from "./ProjectSettings";
+import { ResolutionPicker } from "./ResolutionPicker";
 import { lib, type Preset } from "./library-api";
 import { ShotReferences, templateOptions } from "./ShotRefs";
 import { deleteWithUndo } from "./bulk";
@@ -257,11 +257,7 @@ export function ShotEditor({ initial, templates, withRefs, defaults, onSave, onC
       <div className="row">
         <label className="small">Seconds<input type="number" min={1} max={20} step={0.5} value={secs} onChange={(e) => setSecs(Number(e.target.value))} /></label>
         <span className="small muted">→ {frames} frames</span>
-        <label className="small">Size
-          <select value={resolution} onChange={(e) => setResolution(e.target.value)}>
-            {[...new Set([resolution, ...SIZES])].map((r) => <option key={r}>{r}</option>)}
-          </select>
-        </label>
+        <div className="small sm-field">Size <ResolutionPicker value={resolution} onChange={setResolution} /></div>
         <label className="small">Into next shot
           <TransitionSelect value={transition} onChange={setTransition} />
         </label>
