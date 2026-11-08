@@ -876,3 +876,36 @@ kbd { font: 11px/1 ui-monospace, monospace; padding: 2px 5px; border-radius: 4px
 .startup .check { display: flex; gap: 8px; align-items: center; }
 .wangp-banner { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 16px; font-size: 13px;
   background: rgba(240, 138, 132, 0.12); border-bottom: 1px solid rgba(240, 138, 132, 0.35); }
+
+/* Checkboxes and switches: one compact control everywhere. The base "input { width: 100% }" and "label { display:
+   grid }" used to stretch a checkbox into its own column or row and leave gaps; a label holding one is now a row. */
+input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; flex: none; width: 18px; height: 18px; min-width: 0; margin: 1px 0 0;
+  padding: 0; display: inline-grid; place-content: center; vertical-align: -3px; cursor: pointer;
+  border: 1.5px solid rgba(255, 255, 255, 0.34); border-radius: 5px; background: rgba(0, 0, 0, 0.28);
+  transition: background .12s, border-color .12s;
+}
+input[type="checkbox"]::before {
+  content: ""; width: 10px; height: 10px; transform: scale(0); transition: transform .12s; background: var(--accent-ink);
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+input[type="checkbox"]:hover { border-color: var(--accent); }
+input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+input[type="checkbox"]:checked::before { transform: scale(1); }
+input[type="checkbox"]:disabled { opacity: .4; cursor: not-allowed; }
+input[type="checkbox"]:focus { outline: none; }
+input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* an on/off setting: a pill switch (className="switch") */
+input[type="checkbox"].switch { width: 34px; height: 20px; border-radius: 999px; place-content: center start; padding: 0 2px; }
+input[type="checkbox"].switch::before {
+  width: 14px; height: 14px; border-radius: 50%; clip-path: none; transform: none; background: var(--muted);
+  transition: transform .15s, background .15s;
+}
+input[type="checkbox"].switch:checked::before { transform: translateX(14px); background: var(--accent-ink); }
+label:has(> input[type="checkbox"]) {
+  display: flex; flex-direction: row; grid-template-columns: none; align-items: flex-start; gap: 8px; width: auto;
+  cursor: pointer; line-height: 1.4;
+}
+label:has(> input[type="checkbox"].switch) { align-items: center; }
+label:has(> input[type="checkbox"]:disabled) { cursor: not-allowed; }
+.startup .check { display: flex; margin: 0; }

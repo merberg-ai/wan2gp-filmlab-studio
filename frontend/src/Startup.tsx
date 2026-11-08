@@ -73,13 +73,13 @@ export function StartupSection() {
             <button className="ghost small" disabled={busy} onClick={() => send(api.detectWanGP)}>Detect again</button>
           </div>)}
         {usable && st && <>
-          <label className="check"><input type="checkbox" checked={st.wangp_autostart} disabled={busy}
+          <label className="check"><input type="checkbox" className="switch" checked={st.wangp_autostart} disabled={busy}
             onChange={(e) => set({ wangp_autostart: e.target.checked })} />
             Start WanGP automatically when FilmLab starts (if it isn't running)</label>
-          <label className="check"><input type="checkbox" checked={st.wangp_restart} disabled={busy}
+          <label className="check"><input type="checkbox" className="switch" checked={st.wangp_restart} disabled={busy}
             onChange={(e) => set({ wangp_restart: e.target.checked })} />
             Start WanGP again if it stops (after a minute without it)</label>
-          <label className="check"><input type="checkbox" checked={st.start_at_logon} disabled={busy}
+          <label className="check"><input type="checkbox" className="switch" checked={st.start_at_logon} disabled={busy}
             onChange={async (e) => {
               const on = e.target.checked;
               if (on && !await ask("Start FilmLab when you sign in to Windows? A Windows scheduled task “FilmLab Studio” "

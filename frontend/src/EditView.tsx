@@ -95,7 +95,7 @@ export function EditView({ project, subscribe }: { project: ProjectDetail; subsc
         <MusicPanel tl={tl} patch={patch} />
         <details className="card">
           <summary><strong>Settings and history</strong></summary>
-          <label className="small row check"><input type="checkbox" checked={tl.doc.settings.loudness}
+          <label className="small row check"><input type="checkbox" className="switch" checked={tl.doc.settings.loudness}
             onChange={(e) => patch({ settings: { ...tl.doc.settings, loudness: e.target.checked }, note: "loudness setting" })} />
             Normalise loudness to −14 LUFS (streaming level) on export</label>
           <label className="small">Default transition length (s)

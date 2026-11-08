@@ -62,7 +62,7 @@ export function SoundEditor({ value, onChange, speakers, seconds }: {
         <label className="small grow">Music <span className="muted">· the score the audience hears; empty for none</span>
           <input placeholder="e.g. tense low strings" value={s.music} maxLength={300} onChange={(e) => set({ music: e.target.value })} /></label>
         <label className="check small" title="An extra audio pass after the video (6 steps): cleaner speech and sound, a little slower">
-          <input type="checkbox" checked={s.refine} onChange={(e) => set({ refine: e.target.checked })} /> Refine audio</label>
+          <input type="checkbox" className="switch" checked={s.refine} onChange={(e) => set({ refine: e.target.checked })} /> Refine audio</label>
       </div>
       <p className="small muted">Speakers are the shot's characters by their Library name; one with a voice sample in the Library
         keeps that voice. Sound applies to MiniMax H3 models exactly; other audio models get it as a plain description.</p>

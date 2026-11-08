@@ -133,8 +133,8 @@ function InspectionSettings() {
         isn't checked.</p>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="settings card">
-        <label><span>Inspect new takes automatically</span>
-          <input type="checkbox" checked={s.auto_inspect} onChange={(e) => save({ auto_inspect: e.target.checked })} /></label>
+        <label><input type="checkbox" className="switch" checked={s.auto_inspect} onChange={(e) => save({ auto_inspect: e.target.checked })} />
+          <span>Inspect new takes automatically</span></label>
         <div className="vision-modes" role="radiogroup" aria-label="Vision check">
           {([["off", "Off", "No frames are sent anywhere. Only the technical checks run."],
             ["local", "Local model", "An Ollama vision model on this PC (e.g. qwen2.5vl:7b). Frames stay here; it uses GPU memory while WanGP renders."],

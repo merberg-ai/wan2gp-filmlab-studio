@@ -644,7 +644,7 @@ function RenderReview({ project, preselect, requestId, onClose, act }: {
         {startAt && <input type="datetime-local" value={startAt} min={localInput(new Date())} onChange={(e) => setStartAt(e.target.value)} />}
       </label>
       <label className="row small preview-toggle" title={PREVIEW_HINT}>
-        <input type="checkbox" checked={preview} onChange={(e) => setPreview(e.target.checked)} />
+        <input type="checkbox" className="switch" checked={preview} onChange={(e) => setPreview(e.target.checked)} />
         <span><strong>Preview first</strong>: quick takes at half the width and height, to check timing, framing and continuity
           across the film before spending full-quality render time.</span>
       </label>

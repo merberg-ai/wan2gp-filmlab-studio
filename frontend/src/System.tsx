@@ -111,7 +111,7 @@ export function SystemPage({ gpu }: { gpu: GpuSample | null }) {
             })}>{busy === "backup" ? "Backing up…" : "Back up now"}</button>
           </div>
           <div className="row">
-            <label className="check"><input type="checkbox" checked={b.settings.daily}
+            <label className="check"><input type="checkbox" className="switch" checked={b.settings.daily}
               onChange={(e) => act("set", async () => { await api.backupSettings({ daily: e.target.checked }); })} /> Daily backup while FilmLab runs</label>
             <label>Keep automatic backups
               <input type="number" min={1} max={100} value={b.settings.keep}
