@@ -236,3 +236,14 @@ def test_a_finished_render_marks_its_model_downloaded(make_harness, images):
     h.post(f"/api/shots/{s['id']}/approve-and-render")
     h.wait_for(lambda: h.project(pid)["takes"], what="take")
     h.wait_for(lambda: caps()[name]["installed"] is True, what="marked downloaded")
+
+
+def test_h3_reference_renders_keep_the_shots_size():
+    """Live: H3 Ref2VA PTD's template defaults to video_prompt_type "KI" (size from the first picture), so a 720x1280
+    shot whose first picture was a landscape gym came out 1280x704. FilmLab chooses the size: "I" only."""
+    from app.capabilities import keep_our_size
+    h3 = {"model_type": "minimax_h3_ref2va_pruned_ptd_refasymopd", "video_prompt_type": "KI", "resolution": "720x1280"}
+    assert keep_our_size(h3)["video_prompt_type"] == "I"
+    assert keep_our_size(h3 | {"video_prompt_type": "I"})["video_prompt_type"] == "I"
+    other = {"model_type": "ltx2_22B_distilled", "video_prompt_type": "KI"}
+    assert keep_our_size(other) == other  # other families' letters mean other things

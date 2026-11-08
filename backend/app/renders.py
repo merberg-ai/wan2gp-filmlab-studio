@@ -26,7 +26,7 @@ from .events import EventBus
 from . import sound
 from .media import probe, sha256_file, thumbnail
 from .music_video import LIPSYNC_WORDING
-from .capabilities import with_refs_mode
+from .capabilities import keep_our_size, with_refs_mode
 from .wangp.webui import downloading
 from .wangp import errors
 from .wangp.client import WanGPClient, WanGPError
@@ -248,7 +248,7 @@ class RenderService:
     # --- lifecycle -------------------------------------------------------
 
     async def render_settings(self, shot: dict, refs: list[dict], preview: bool) -> dict:
-        settings = await self.build_settings(shot, refs)
+        settings = keep_our_size(await self.build_settings(shot, refs))
         if preview:
             settings["resolution"] = preview_resolution(shot["resolution"])
         return settings

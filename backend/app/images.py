@@ -11,7 +11,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from .capabilities import AUDIO_TASKS, CLONE_TASKS, IMAGE_TASKS, MUSIC_TASKS, VIDEO_TASKS, Capabilities
+from .capabilities import AUDIO_TASKS, CLONE_TASKS, IMAGE_TASKS, MUSIC_TASKS, VIDEO_TASKS, Capabilities, keep_our_size
 from .media import probe, thumbnail
 from .db import new_id, now
 from .library import Library, LibraryError
@@ -109,6 +109,7 @@ class ImageJobs(RenderService):
             base["resolution"] = resolution
         if media == "video":
             base["video_length"] = int(frames or 49)
+            base = keep_our_size(base)
         if inputs:
             base["image_refs"] = [i["wangp_media_id"] for i in inputs]
         if audio_file_id:  # the voice to clone

@@ -55,6 +55,16 @@ def with_refs_mode(video_prompt_type) -> str:
     return vpt if "I" in vpt else vpt + "I"
 
 
+def keep_our_size(settings: dict) -> dict:
+    """FilmLab always chooses the size. H3's reference models read video_prompt_type "KI" as "take the size from the
+    first picture" (WanGP: `I` preserves chosen output dimensions, `KI` derives them from the first image), and some
+    of their templates default to it: a portrait shot whose first picture is a landscape place came out landscape."""
+    vpt = str(settings.get("video_prompt_type") or "")
+    if str(settings.get("model_type", "")).startswith("minimax_h3") and "I" in vpt and "K" in vpt:
+        return settings | {"video_prompt_type": vpt.replace("K", "")}
+    return settings
+
+
 class CapabilityError(ValueError):
     pass
 
