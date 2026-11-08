@@ -54,7 +54,7 @@ export function MusicVideoSetupModal({ project, onClose, onSaved }: {
   const generating = !!data?.song_jobs.some((j) => !["done", "failed", "cancelled", "interrupted"].includes(j.status));
   useEffect(() => {
     if (!generating) return;
-    const t = setInterval(() => { load().catch(() => undefined); }, 4000);
+    const t = setInterval(() => { load().catch(() => undefined); }, 2000);
     return () => clearInterval(t);
   }, [generating]);  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -145,7 +145,8 @@ export function MusicVideoSetupModal({ project, onClose, onSaved }: {
                     <button type="button" className="primary small" disabled={busy || style.trim().length < 3}
                       onClick={generate}>{data.song_candidates.length ? "Generate more" : "Generate song"}</button>
                   </div>
-                  {generating && <p className="small muted">Generating… the candidates appear here when they're done.</p>}
+                  {data.song_jobs.filter((j) => !["done", "failed", "cancelled", "interrupted"].includes(j.status)).map((j) => (
+                    <SongProgress key={j.id} job={j} busy={busy} onCancel={() => run(async () => { await lib.cancelImageJob(j.id); await load(); })} />))}
                   {data.song_jobs.filter((j) => j.status === "failed").slice(0, 1).map((j) => (
                     <p key={j.id} className="small error">The last song didn't generate: {j.error}</p>))}
                   {data.song_candidates.length > 0 && <ul className="mv-list">
@@ -224,6 +225,31 @@ export function MusicVideoSetupModal({ project, onClose, onSaved }: {
           </div>
         </footer>
       </div>
+    </div>
+  );
+}
+
+type SongJob = MusicVideoSetup["song_jobs"][number];
+
+/** A song being generated: WanGP's phase and steps when it reports them, otherwise a busy bar; time so far. */
+function SongProgress({ job, busy, onCancel }: { job: SongJob; busy: boolean; onCancel: () => void }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const secs = Math.max(0, Math.round((now - Date.parse(job.submitted_at)) / 1000));
+  const elapsed = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  const phase = job.status === "cancelling" ? "cancelling"
+    : job.phase ? `${job.phase.replace(/_/g, " ")}${job.total_steps ? ` ${job.current_step ?? 0}/${job.total_steps}` : ""}`
+    : job.queue_ahead ? `waiting in WanGP's queue: ${job.queue_ahead} ahead` : "starting";
+  return (
+    <div className="song-progress" role="status">
+      <div className="row">
+        <span className="small grow">Generating {job.count} song{job.count === 1 ? "" : "s"} <span className="muted">· {phase} · {elapsed}</span></span>
+        {job.status !== "cancelling" && <button type="button" className="ghost small" disabled={busy} onClick={onCancel}>Cancel</button>}
+      </div>
+      {job.total_steps ? <progress max={job.total_steps} value={job.current_step ?? 0} aria-label="song progress" />
+        : <progress aria-label="generating" />}
+      {job.stalled ? <p className="warn small">No progress from WanGP for 10 minutes.</p>
+        : <p className="small muted">The candidates appear below when they're done.</p>}
     </div>
   );
 }

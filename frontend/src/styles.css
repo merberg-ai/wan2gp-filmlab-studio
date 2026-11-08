@@ -950,6 +950,17 @@ progress { -webkit-appearance: none; appearance: none; height: 6px; border: 0; b
 progress::-webkit-progress-bar { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
 progress::-webkit-progress-value { background: var(--accent); border-radius: 3px; }
 progress::-moz-progress-bar { background: var(--accent); border-radius: 3px; }
+/* no value: busy, with a stripe of the accent sliding across */
+progress:not([value]) { position: relative; }
+progress:not([value])::-webkit-progress-bar { background: transparent; }
+progress:not([value])::-moz-progress-bar { background: transparent; }
+progress:not([value])::after { content: ""; position: absolute; inset: 0; width: 35%; border-radius: 3px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: progress-busy 1.4s ease-in-out infinite; }
+@keyframes progress-busy { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { progress:not([value])::after { animation-duration: 4s; } }
+.song-progress { display: grid; gap: 6px; padding: 10px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08); }
+.song-progress p { margin: 0; }
 
 /* Project cards (Projects.tsx): a 16:9 picture on top; hover plays the cover take */
 .project-card { padding: 0; overflow: hidden; display: grid; gap: 0; text-decoration: none; color: inherit; }

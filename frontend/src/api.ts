@@ -125,7 +125,10 @@ export interface MusicVideoSetup {
   song: { file_id: string; duration_s: number | null; mime: string } | null;
   song_asset_id: string | null; song_files: { file_id: string; caption: string; duration_s?: number | null }[];
   song_candidates: SongCandidate[];
-  song_jobs: { id: string; status: string; phase: string | null; error: string | null; submitted_at: string }[];
+  song_jobs: {
+    id: string; status: string; phase: string | null; error: string | null; submitted_at: string; count: number;
+    current_step: number | null; total_steps: number | null; queue_ahead: number | null; stalled: number | boolean | null;
+  }[];
   library_songs: { file_id: string; name: string; duration_s: number | null }[];
   lipsync_models: LipsyncModel[]; song_models: { template: string; installed: boolean | null }[]; song_model: string;
 }
