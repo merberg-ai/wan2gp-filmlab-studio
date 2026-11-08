@@ -116,6 +116,11 @@ class DirectorChat:
             self.planning.pop(project_id, None)
             await self.bus.publish("chat.done", {"turn_id": turn_id}, project_id)
 
+    async def wait(self, project_id: str):
+        """Until the project's director turn (if any) has finished."""
+        while (task := self._task_of.get(project_id)) and not task.done():
+            await asyncio.gather(asyncio.shield(task), return_exceptions=True)
+
     async def stop(self, project_id: str) -> bool:
         """Stop the project's director turn now. What it already saved stays; False if nothing was running."""
         task = self._task_of.get(project_id)

@@ -326,4 +326,4 @@ async def project_extras(s, project_id: str) -> dict:
         r["shot_ids"] = json.loads(r["shot_ids"])
     return {"scenes": await s.storyboard.scenes(project_id), "batch": await s.batches.latest(project_id),
             "batch_requests": reqs, "render_rates": await s.storyboard.rates(),
-            "planning": s.chat.planning.get(project_id)}
+            "planning": s.chat.planning.get(project_id), "enhancing": s.enhance_all.state(project_id)}

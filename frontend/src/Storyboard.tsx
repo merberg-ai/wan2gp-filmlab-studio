@@ -10,6 +10,7 @@ import { showToast } from "./notify";
 import { templateOptions } from "./ShotRefs";
 import { FilmStrip } from "./FilmStrip";
 import { Animatic } from "./Animatic";
+import { cantEnhance, EnhanceAllModal, EnhanceProgress } from "./EnhanceAll";
 import { duration, etaText, expected, jobEta, PREVIEW_SHARE, useNow } from "./eta";
 
 type Act = (fn: () => Promise<unknown>) => Promise<void>;
@@ -44,6 +45,7 @@ export function Storyboard({ project, templates, selected, onSelect, act, timeli
   // Select mode: shots (and whole scenes) for a bulk action
   const [picking, setPicking] = useState(false);
   const [animatic, setAnimatic] = useState(false);
+  const [enhancing, setEnhancing] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [pickedScenes, setPickedScenes] = useState<Set<string>>(new Set());
   useEffect(() => {  // drop what's gone (deleted elsewhere, or by the bulk action itself)
@@ -131,6 +133,11 @@ export function Storyboard({ project, templates, selected, onSelect, act, timeli
             onClick={() => act(() => api.fixPrompts(project.id, fixable))}>✨ Fix {fixable.length} with director</button>
         )}
         {project.shots.length > 0 && (
+          <button className="ghost" disabled={project.director_busy || !project.shots.some((s) => !cantEnhance(s))}
+            title="The director rewrites the prompts of the shots you choose, one after another, from your idea for each"
+            onClick={() => setEnhancing(true)}>✨ Enhance all…</button>
+        )}
+        {project.shots.length > 0 && (
           <button className={`ghost ${picking ? "on" : ""}`} aria-pressed={picking}
             title="Select shots or whole scenes to render, lock, change or delete them together"
             onClick={() => { setPicking((v) => !v); clearPicks(); }}>{picking ? "Done" : "Select"}</button>
@@ -148,6 +155,8 @@ export function Storyboard({ project, templates, selected, onSelect, act, timeli
       </div>
       {timeline && <Timeline project={project} selected={selected} onSelect={onSelect} act={act} />}
       {project.director_busy && project.planning && <PlanProgress project={project} act={act} />}
+      {project.enhancing && <EnhanceProgress project={project} act={act} />}
+      {enhancing && <EnhanceAllModal project={project} act={act} onClose={() => setEnhancing(false)} />}
       {animatic && <Animatic project={project} onClose={() => setAnimatic(false)} />}
       <BriefPanel project={project} act={act} />
       {project.batch_requests.map((r) => (

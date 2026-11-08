@@ -28,7 +28,8 @@ from .config import Settings
 from .db import Database, new_id, now
 from .director.chat import ChatBusy, DirectorChat, failed
 from .director.settings import DirectorSettings
-from .director.enhance import can_enhance, enhance_brief
+from .director.enhance import can_enhance
+from .enhance_all import EnhanceAll, EnhanceError, enhance_request
 from .director.gateway import GatewayClient
 from .director.tools import DirectorTools
 from .events import EventBus
@@ -148,6 +149,7 @@ class Studio:
                                  self.director_settings)
         self.runs = Runs(self.db, self.bus, self.renders, self.storyboard, self.edit, self.inspector, self.chat.send)
         self.creator = Creator(self)
+        self.enhance_all = EnhanceAll(self)
         self.chat.console = self.console
         self.runs.held = self.gpu_held
         self.health.wangp = (self.wangp, None)
@@ -311,6 +313,7 @@ class Studio:
         await self.backups.shutdown()
         await self.gpu.shutdown()
         await self.inspector.shutdown()
+        await self.enhance_all.shutdown()
         await self.chat.shutdown()
         await self.renders.shutdown()
         await self.images.shutdown()
@@ -322,6 +325,10 @@ class Studio:
 
 
 # --- request models ------------------------------------------------------
+
+class EnhanceAllIn(BaseModel):
+    shot_ids: list[str] = Field(min_length=1, max_length=500)
+
 
 class CoverIn(BaseModel):
     take_id: str | None = None
@@ -621,7 +628,7 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
         project = await project_or_404(s, project_id)
         # Busy before the reads: a turn ending mid-request then shows "busy" one poll longer, never "done" with the
         # storyboard as it was before the turn's last parts.
-        busy = s.chat.busy(project_id)
+        busy = s.chat.busy(project_id) or project_id in s.enhance_all.runs  # between two shots too
         # One consistent read: a render finishing mid-request must not show a done job on a rendering shot.
         shot_rows, jobs, takes, approvals = await s.db.fetchall_many(
             ("SELECT * FROM shots WHERE project_id = ? AND deleted_at IS NULL ORDER BY position", (project_id,)),
@@ -802,20 +809,32 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
             raise HTTPException(409, "the shot is locked; unlock it to let the director change it")
         if not can_enhance(shot):
             raise HTTPException(409, f"shot is {shot['status']}; it can't be enhanced while it is approved or rendering")
-        if not shot["idea"]:  # first Enhance of a director-drafted shot: its current prompt is the starting idea
-            await s.db.execute("UPDATE shots SET idea = ? WHERE id = ?", (shot["prompt"], shot_id))
-            shot = shot | {"idea": shot["prompt"]}
-        scene = shot["scene_id"] and await s.db.fetchone("SELECT * FROM scenes WHERE id = ?", (shot["scene_id"],))
-        project = await s.db.fetchone("SELECT brief, logline, style FROM projects WHERE id = ?", (shot["project_id"],))
-        brief = enhance_brief(shot, await s.library.shot_refs(shot_id), await s.library.cast(shot["project_id"]),
-                              dict(scene) if scene else None, (project and (project["brief"] or project["logline"])) or "",
-                              (project and project["style"]) or "")
+        if shot["project_id"] in s.enhance_all.runs:
+            raise HTTPException(409, "the director is enhancing the storyboard's shots; wait for it or stop it")
+        brief = await enhance_request(s, shot)
         try:
             turn = await s.chat.send(shot["project_id"], brief, expect=("update_shot", "the new prompt"))
         except ChatBusy as exc:
             raise HTTPException(409, str(exc)) from exc
         await s.db.audit("owner", "shot.enhance", shot_id, {"turn_id": turn})
         return {"turn_id": turn}
+
+    @app.post("/api/projects/{project_id}/enhance-all", status_code=202)
+    async def enhance_all(project_id: str, body: EnhanceAllIn, request: Request, _=owner):
+        """The director enhances the chosen shots one after another (the storyboard shows how far it got)."""
+        s = st(request)
+        await project_or_404(s, project_id)
+        try:
+            return await s.enhance_all.start(project_id, body.shot_ids, "owner")
+        except EnhanceError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post("/api/projects/{project_id}/enhance-all/stop")
+    async def enhance_all_stop(project_id: str, request: Request, _=owner):
+        """Stop now: the shots already enhanced keep their new prompts."""
+        s = st(request)
+        await project_or_404(s, project_id)
+        return {"stopped": await s.enhance_all.stop(project_id)}
 
     # media -----------------------------------------------------------------
 

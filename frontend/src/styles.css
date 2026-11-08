@@ -1138,3 +1138,14 @@ progress:not([value])::after { content: ""; position: absolute; inset: 0; width:
 .batch-summary strong { color: var(--accent); font-size: 15px; font-variant-numeric: tabular-nums; }
 .batch-eta { text-align: right; }
 .batch-now { margin: 4px 0 0; }
+
+/* Enhance all (EnhanceAll.tsx): the shots to enhance, all chosen by default */
+.enhance-all { width: min(520px, 100%); }
+.ea-all { padding: 6px 0 4px; border-bottom: 1px solid var(--line); }
+.ea-list { list-style: none; margin: 0; padding: 4px 0; display: grid; gap: 2px; }
+.ea-check { display: flex !important; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 6px; cursor: pointer; }
+.ea-list li:not(.muted) .ea-check:hover { background: rgba(255, 255, 255, 0.04); }
+.ea-list li.muted .ea-check { cursor: default; }
+.ea-num { color: var(--muted); min-width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.ea-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ea-why { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); text-transform: capitalize; }

@@ -225,6 +225,11 @@ export interface ProjectDetail extends Project {
   shots: Shot[]; jobs: Job[]; takes: Take[]; approvals: Approval[]; director_busy: boolean; last_event_id: number;
   /** A plan in parts being written right now: parts saved so far and the seconds of film they add up to. */
   planning?: { turn_id: string; started_at: string; parts: number; seconds: number; scenes: number } | null;
+  /** Enhance all, while it runs (backend/app/enhance_all.py). */
+  enhancing?: {
+    started_at: string; total: number; done: number; failed: number; skipped: number; finished: number; shot_ids: string[];
+    current: { shot_id: string; position: number; title: string } | null;
+  } | null;
 }
 /** A shot's pre-render problem, as a render would report it. */
 export interface ShotIssue { level: "block" | "warn"; message: string; kind?: string }
@@ -383,6 +388,9 @@ export const api = {
   putDirectorSettings: (p: Partial<DirectorSettings>) => request<DirectorSettings>("PUT", "/api/director/settings", p),
   testDirector: (model?: string) => request<DirectorTest>("POST", "/api/director/test", model === undefined ? undefined : { model }),
   directorModels: () => request<DirectorModel[]>("GET", "/api/director/models"),
+  enhanceAll: (projectId: string, shotIds: string[]) =>
+    request<{ total: number }>("POST", `/api/projects/${projectId}/enhance-all`, { shot_ids: shotIds }),
+  stopEnhanceAll: (projectId: string) => request<{ stopped: boolean }>("POST", `/api/projects/${projectId}/enhance-all/stop`),
   stopChat: (projectId: string) => request<{ stopped: boolean }>("POST", `/api/projects/${projectId}/chat/stop`),
   fixPrompts: (pid: string, shotIds?: string[]) =>
     request<{ turn_id: string; shots: string[] }>("POST", `/api/projects/${pid}/fix-prompts`, { shot_ids: shotIds ?? null }),

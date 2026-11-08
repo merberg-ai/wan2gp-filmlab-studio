@@ -508,3 +508,26 @@ def test_usage_lists_the_shots_and_a_look_swaps_everywhere(make_harness, images)
     assert "Corporal Hale" in revs[-1]["rationale"] and "refs" in revs[-1]["changed"]
     bad = h.post(f"/api/library/assets/{hale['id']}/swap-look", {"to_variant_id": tv})
     assert bad.status_code == 422
+
+
+def test_enhance_all_runs_the_chosen_shots_one_after_another(make_harness, images):
+    h = make_harness().login()
+    pid = new_project(h)
+    _, _, hv, tv = refs_setup(h, images)
+    a = new_shot(h, pid, template=None, prompt="Hale crouches in the trench")
+    b = new_shot(h, pid, template=None, prompt="the trench is on fire")
+    locked = new_shot(h, pid, template=None, prompt="rain on the trench at dawn")
+    for s in (a, b, locked):
+        set_refs(h, s["id"], hv, tv)
+    h.post(f"/api/shots/{locked['id']}/lock", {"locked": True})
+    assert h.post(f"/api/projects/{pid}/enhance-all", {"shot_ids": [locked["id"]]}).status_code == 409
+    r = h.post(f"/api/projects/{pid}/enhance-all", {"shot_ids": [a["id"], b["id"], locked["id"]]})
+    assert r.status_code == 202 and r.json()["total"] == 2  # the locked shot is left out
+    assert h.post(f"/api/shots/{a['id']}/enhance").status_code == 409  # one at a time
+    p = h.wait_for(lambda: (p := h.project(pid)) and not p["director_busy"] and not p["enhancing"] and p, what="enhanced")
+    by = {s["id"]: s for s in p["shots"]}
+    assert by[a["id"]]["prompt"].startswith("<Picture 1>") and by[b["id"]]["prompt"].startswith("<Picture 1>")
+    assert by[locked["id"]]["prompt"] == "rain on the trench at dawn"
+    briefs = [m["content"] for m in h.c.get(f"/api/projects/{pid}/chat").json() if m["role"] == "user"]
+    assert len(briefs) == 2 and "“Hale crouches in the trench”" in briefs[0] and "“the trench is on fire”" in briefs[1]
+    assert h.post(f"/api/projects/{pid}/enhance-all/stop").json() == {"stopped": False}
