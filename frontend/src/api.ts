@@ -346,6 +346,8 @@ export const api = {
   trash: () => request<Trash>("GET", "/api/trash"),
   restore: (kind: TrashKind, id: string) => request("POST", `/api/trash/${kind}/${id}/restore`),
   purge: (kind: TrashKind, id: string) => request<{ files_removed: number }>("DELETE", `/api/trash/${kind}/${id}`),
+  emptyTrash: () => request<{ purged: Record<string, number>; files_removed: number; failed: { kind: string; error: string }[] }>(
+    "POST", "/api/trash/empty"),
   enhanceShot: (id: string) => request<{ turn_id: string }>("POST", `/api/shots/${id}/enhance`),
   validateShot: (id: string) => request<Validation>("POST", `/api/shots/${id}/validate`),
   approveAndRender: (id: string, preview = false) => request<Job>("POST", `/api/shots/${id}/approve-and-render`, { preview }),

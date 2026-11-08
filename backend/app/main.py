@@ -452,6 +452,10 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
         except TrashError as exc:
             raise HTTPException(409, str(exc)) from exc
 
+    @app.post("/api/trash/empty")
+    async def trash_empty(request: Request, _=owner):
+        return await st(request).trash.empty("owner")
+
     @app.delete("/api/trash/{kind}/{row_id}")
     async def trash_purge(kind: str, row_id: str, request: Request, _=owner):
         try:

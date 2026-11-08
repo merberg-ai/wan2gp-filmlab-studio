@@ -36,9 +36,22 @@ export function TrashPage() {
 
   if (!trash) return <main className="page">{error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>}</main>;
   const empty = !trash.projects.length && !trash.shots.length && !trash.takes.length && !trash.assets.length && !trash.variants.length;
+  const count = trash.projects.length + trash.shots.length + trash.takes.length + trash.assets.length + trash.variants.length;
+  const emptyTrash = () => act(async () => {
+    if (!await ask(`Empty Recently deleted? All ${count} item${count === 1 ? "" : "s"} here are deleted forever, with their `
+      + "takes, chats and files on disk. This can't be undone.", { confirm: "Delete" })) return;
+    const r = await api.emptyTrash();
+    const n = Object.values(r.purged).reduce((a, b) => a + b, 0);
+    if (r.failed.length) throw new Error(`Deleted ${n} item${n === 1 ? "" : "s"} forever, but ${r.failed.length} couldn't go: `
+      + r.failed.map((f) => f.error).join("; "));
+    return `Emptied: ${n} item${n === 1 ? "" : "s"} deleted forever (${r.files_removed} file${r.files_removed === 1 ? "" : "s"} removed from disk).`;
+  });
   return (
     <main className="page trash">
-      <h2>Recently deleted</h2>
+      <div className="row">
+        <h2 className="grow">Recently deleted</h2>
+        {count > 0 && <button className="danger small" onClick={emptyTrash}>Empty Recently deleted…</button>}
+      </div>
       <p className="muted small">Deleted projects, shots and library items stay here until you delete them forever.
         Restoring brings an item back as it was, except that a library item doesn't go back onto shots it was removed from.
         Nothing here touches WanGP's own gallery.</p>

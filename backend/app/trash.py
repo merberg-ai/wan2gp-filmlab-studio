@@ -247,6 +247,22 @@ class Trash:
         await self.db.audit(actor, f"{kind}.purge", row_id, {"files_removed": removed})
         return {"purged": kind, "id": row_id, "files_removed": removed}
 
+    async def empty(self, actor: str) -> dict:
+        """Delete everything in Recently deleted forever. Containers go first (a project takes its shots and takes,
+        an asset its looks); an item that can't go is left there and reported."""
+        listing = await self.listing()
+        counts, failed, removed = {}, [], 0
+        for kind, key in (("project", "projects"), ("asset", "assets"), ("shot", "shots"), ("take", "takes"),
+                          ("variant", "variants")):
+            for r in listing[key]:
+                try:
+                    removed += (await self.purge(kind, r["id"], actor))["files_removed"]
+                    counts[key] = counts.get(key, 0) + 1
+                except TrashError as exc:
+                    failed.append({"kind": kind, "id": r["id"], "error": str(exc)})
+        await self.db.audit(actor, "trash.empty", None, {"purged": counts, "files_removed": removed, "failed": len(failed)})
+        return {"purged": counts, "files_removed": removed, "failed": failed}
+
     async def _purge_shots(self, shot_ids: list[str]) -> list[dict]:
         """Delete the shots' rows; return their media rows so the files can go after the commit."""
         if not shot_ids:

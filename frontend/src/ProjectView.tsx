@@ -111,7 +111,6 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
     <main className={`workspace show-${pane} ${tab !== "edit" ? "resizable" : ""}`}
       style={tab !== "edit" ? { ["--ws-cols" as string]: lay.template } : undefined}>
       <div className="ws-head">
-        <a className="muted" href="#/">← Projects</a>
         <h1>{project.title}</h1>
         <nav className="tabs" aria-label="Project views">
           <a href={`#/p/${project.id}`} className={tab === "storyboard" ? "on" : ""}>Storyboard</a>

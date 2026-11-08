@@ -121,6 +121,34 @@ def test_shot_delete_restore_and_delete_forever(make_harness):
     assert r.status_code == 409 and "restore the project first" in r.json()["detail"]
 
 
+def test_empty_recently_deleted_removes_everything_in_it_and_nothing_else(make_harness, images):
+    h = make_harness().login()
+    gone_pid, pid = new_project(h), new_project(h)
+    rendered(h, gone_pid, new_shot(h, gone_pid, template=LTX)["id"])
+    keep, gone = new_shot(h, pid, template=LTX), new_shot(h, pid, title="Gone", template=LTX)
+    rendered(h, pid, keep["id"])
+    rendered(h, pid, gone["id"])
+    bad_take = rendered(h, pid, keep["id"])[-1]
+    a = asset(h, "prop", "Bugle")
+    upload(h, default_variant(a), images[0])
+    delete(h, f"/api/projects/{gone_pid}")
+    delete(h, f"/api/shots/{gone['id']}")
+    delete(h, f"/api/takes/{bad_take['id']}")
+    delete(h, f"/api/library/assets/{a['id']}")
+    trash = h.c.get("/api/trash").json()
+    assert [len(trash[k]) for k in ("projects", "shots", "takes", "assets")] == [1, 1, 1, 1]
+    r = h.post("/api/trash/empty")
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["purged"] == {"projects": 1, "shots": 1, "takes": 1, "assets": 1} and out["failed"] == []
+    assert out["files_removed"] >= 3
+    assert all(not v for v in h.c.get("/api/trash").json().values())
+    proj = h.project(pid)  # what wasn't deleted is untouched
+    assert [s["id"] for s in proj["shots"]] == [keep["id"]] and len(proj["takes"]) == 1
+    assert all(f.exists() for f in media_files(h, pid)) and not media_files(h, gone_pid)
+    assert h.post("/api/trash/empty").json()["purged"] == {}  # empty already: nothing to do
+
+
 def test_asset_delete_takes_it_off_shots_and_delete_forever_keeps_shared_files(make_harness, images):
     h = make_harness().login()
     pid = new_project(h)
