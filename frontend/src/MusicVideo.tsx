@@ -80,6 +80,7 @@ export function MusicVideoSetupModal({ project, onClose, onSaved }: {
   });
   const choose = (fileId: string) => run(async () => setData(await api.updateMusicVideo(project.id, { song_file_id: fileId })));
   const useCandidate = (id: string) => run(async () => setData(await api.useSongCandidate(project.id, id)));
+  const removeCandidate = (id: string) => run(async () => { await lib.discard(id); await load(); });
 
   const save = () => run(async () => {
     if (mode === "lipsync" && chosen?.installed === false
@@ -153,6 +154,8 @@ export function MusicVideoSetupModal({ project, onClose, onSaved }: {
                         <span className="small">Candidate {i + 1}</span>
                         <audio controls preload="none" src={lib.fileUrl(c.file_id)} className="grow" />
                         <button type="button" className="ghost small" disabled={busy} onClick={() => useCandidate(c.id)}>Use this</button>
+                        <button type="button" className="ghost small" disabled={busy} aria-label={`Remove candidate ${i + 1}`}
+                          title="Remove this candidate" onClick={() => removeCandidate(c.id)}>✕</button>
                       </li>))}
                   </ul>}
                 </div>
