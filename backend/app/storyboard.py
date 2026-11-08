@@ -348,18 +348,20 @@ class Storyboard:
                     else:
                         refs.append(img)
                 shot["refs"] = refs
+                place = scene["fields"].get("time_place") or (existing.get(scene["scene_id"]) or {}).get("time_place") or ""
+                # the place and time of day: checked even when the shot has other errors, so one reply lists them all
+                if (problem := setting_problem(shot["prompt"], place)) if shot.get("prompt") else None:
+                    e.append(setting_error(problem))
                 if not e:
                     tpl = await self.caps.effective_template({"template_explicit": 0}, project, len(refs))
                     shot["template"] = tpl
                     plan_refs = [{"position": k, "asset_id": r["asset_id"], "asset_name": r["name"], "kind": r["kind"]}
                                  for k, r in enumerate(refs, start=1)]
-                    place = scene["fields"].get("time_place") or (existing.get(scene["scene_id"]) or {}).get("time_place") or ""
                     for issue in await self.caps.checks(tpl, len(refs), shot["prompt"], place, sound_fields=shot["sound"],
                                                         refs=plan_refs, voiced=[]):
                         if issue["level"] == "info":
                             continue
-                        if issue.get("kind") == "setting":  # a shot without its place and time comes out elsewhere
-                            e.append(setting_error(setting_problem(shot["prompt"], place)))
+                        if issue.get("kind") == "setting":  # already checked above
                             continue
                         # A prompt naming a picture the shot doesn't have is an error in a plan, not a hint.
                         blocking = issue["level"] == "block" or issue.get("kind") == "picture"

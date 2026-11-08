@@ -227,7 +227,31 @@ def _fold_plan(args: dict) -> tuple[dict, list[str]]:
         if not sc.get("scene_id") and not str(sc.get("title") or "").strip():
             sc["title"] = f"Scene {n + 1}"
             fixes.append(f"scenes[{n}] had no title, so it is called \"Scene {n + 1}\" (rename it with update_scene)")
+        for m, sh in enumerate(sc.get("shots") or []):
+            if isinstance(sh, dict):
+                fixes += _fold_sound(sh, f"scenes[{n}].shots[{m}]")
     return args, fixes
+
+
+def _fold_sound(shot: dict, where: str) -> list[str]:
+    """A shot's sound written as plain text (it's the ambience), or a line written as "Speaker: words"."""
+    s = shot.get("sound")
+    if isinstance(s, str):
+        shot["sound"] = {"lines": [], "ambience": s.strip(), "music": ""}
+        return [f"{where}.sound was text, so it became the ambience (no spoken lines)"]
+    if not isinstance(s, dict) or not isinstance(s.get("lines"), list):
+        return []
+    fixes, lines = [], []
+    for i, ln in enumerate(s["lines"]):
+        if isinstance(ln, str):
+            speaker, sep, text = ln.partition(":")
+            if sep and speaker.strip() and text.strip() and len(speaker) <= 60:
+                lines.append({"speaker": speaker.strip(), "text": text.strip().strip('"“”'), "delivery": ""})
+                fixes.append(f"{where}.sound.lines[{i}] was text, so it became {{speaker, text}}")
+                continue
+        lines.append(ln)
+    s["lines"] = lines
+    return fixes
 
 
 def _normalise_refs(refs) -> list[dict]:
@@ -461,6 +485,13 @@ class DirectorTools:
         return {"shot": _shot_view(updated)}
 
     async def plan_storyboard(self, project_id, scenes, logline="", replace_drafts=False):
+        p = await self.db.fetchone("SELECT music_mode FROM projects WHERE id = ?", (project_id,))
+        if p and p["music_mode"] and isinstance(scenes, list):
+            # a music video: the song is the sound of every shot, so FilmLab sets it (a slip here can't fail a plan)
+            for sc in scenes:
+                for sh in (sc.get("shots") or []) if isinstance(sc, dict) else []:
+                    if isinstance(sh, dict):
+                        sh["sound"] = {"lines": [], "ambience": "", "music": ""}
         part = self.plan_parts.get(project_id, 0)
         if part:  # a later part of a plan in parts must never replace the drafts the earlier parts just wrote
             replace_drafts = False

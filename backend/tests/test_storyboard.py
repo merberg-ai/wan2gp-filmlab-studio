@@ -601,3 +601,28 @@ def test_the_director_must_say_where_and_when(make_harness):
     asked = h.c.get(f"/api/projects/{pid}/chat").json()
     first = next(m for m in asked if m["role"] == "user" and m["content"].startswith("Fix these shots"))
     assert f"(shot_id {sid})" in first["content"] and "nirvana, gym, indoor" in first["content"]
+
+
+def test_plan_sound_slips_are_repaired_and_every_problem_comes_back_at_once(make_harness):
+    """Live (Smells like Anthony Spirit, a music video): three replies each failed a different check (sound as text,
+    lines as text, then the missing night), and FilmLab gave up. Sound in a music video is the song, so FilmLab
+    sets it; elsewhere text sound is repaired; and the place-and-time check reports alongside the other errors."""
+    h = make_harness().login()
+    pid = new_project(h)
+    patch(h, f"/api/projects/{pid}/music-video", {"mode": "lipsync"})
+    shot_ = {"title": "Wide", "prompt": "Wide shot of the singer on a small stage in a grungy dive bar at night",
+             "seconds": 3, "rationale": "opening", "sound": "crowd murmur"}
+    out = run(h, pid, "plan_storyboard", scenes=[{"title": "Verse", "time_place": "Night, grungy dive bar stage",
+                                                 "shots": [shot_ | {"sound": {"lines": ["Anthony sings"]}}]}])
+    assert "error" not in out, out  # a music video's shots get the song as their sound
+    other = new_project(h, "Other")
+    out = run(h, other, "plan_storyboard", scenes=[{"title": "Bar", "time_place": "Night, grungy dive bar stage",
+                                                   "shots": [shot_]}])
+    assert "error" not in out and any("became the ambience" in f for f in out["fixed_by_filmlab"]), out
+    out = run(h, other, "plan_storyboard", scenes=[{"title": "Bar 2", "time_place": "Night, grungy dive bar stage", "shots": [
+        shot_ | {"prompt": "Close-up of the singer, sweat and smoke", "sound": {"lines": ["mumbling with no speaker"]}}]}])
+    errs = " ".join(out.get("errors", []))
+    assert "sound.lines[0]" in errs and "doesn't say where and when" in errs, out  # both in one reply
+    lines = run(h, other, "plan_storyboard", scenes=[{"title": "Bar 3", "time_place": "Night, grungy dive bar stage", "shots": [
+        shot_ | {"sound": {"lines": ["Anthony_Retro: Hello, hello"], "ambience": "", "music": ""}}]}])
+    assert "error" not in lines and any("became {speaker, text}" in f for f in lines["fixed_by_filmlab"]), lines

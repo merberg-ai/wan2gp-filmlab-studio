@@ -292,7 +292,7 @@ class DirectorChat:
             out = json.loads((await self._run_tools(project_id, turn_id, call, succeeded))[-1]["content"])
             if failed(out):
                 refused += 1
-                if refused > 2:
+                if refused > 3:
                     done = self.tools.plan_parts.get(project_id, 0)
                     await self._fail(project_id, turn_id, "The model's plan kept failing FilmLab's checks"
                                      + (f"; the {done} part(s) saved stay. Press Plan more to plan the rest."
