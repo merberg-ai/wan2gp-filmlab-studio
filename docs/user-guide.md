@@ -65,20 +65,23 @@ Use the names you give assets in your briefs (e.g. `Anthony_science`, `Jim_lab`)
 
 - An asset's page lists every shot that **uses it** (by project and look); click one to open it. With more than one look, **Use one look everywhere** puts the chosen look in all those shots, in the same place (locked and rendering shots are skipped, and each change shows in the shot's History).
 
-## The Creator
+## Create
 
-**Library → ✨ Create with the director…** makes a whole new asset from a description.
+**Create** in the top menu makes a whole new asset from a description. It has a tab for each kind: **Character · Location · Prop · Style · Sound**. The Library's **✨ Create with the director…** opens it too.
 
-1. Pick the kind: character, location, prop, style, or **sound** (music). Describe it in your own words, and pick the image models (the first image is made from text; the other views are edits of it, so it stays the same subject). For characters, tick **Design a voice too**.
-2. The **director drafts it**: a name, a description of what must stay consistent, two to four image views (the first is the *anchor*), and, for characters, a voice description and a sample line. Edit anything, or press **Redraft**.
-3. **Generate** each part when you're ready (every step asks before using the GPU):
-   1. **Anchor**: keep the best one;
-   2. **Other views**, made from the kept anchor;
-   3. **Voice**: play the takes and keep one;
-   4. **Music**, for sounds.
-4. **Approve into the library.** Until then the draft is hidden from the Library, the director and every shot. **Discard** sends it to Recently deleted.
+1. **Describe it** in the form on the left, then pick:
+   - **Pictures** (not for sounds): their size, which starts at the open project's size and uses the category/size picker, and the image models. The first picture is made from text; the other views are edits of it, so it stays the same subject.
+   - **Voice** (characters): **Design a voice** from a description, **Clone a sample** you upload, or **No voice**.
+   - **Kind of sound:** **Music or song**, or **Ambience** (a background soundscape: rain, crowd, engine hum).
+2. **The director drafts it:** a name, a description of what must stay consistent, two to four picture views (the first is the anchor), the voice's description and a sample line, or the sound's style. Edit any of it, or press **Redraft**. Drafts in progress are listed under the form.
+3. **Make each part** when you're ready; every step asks before using the GPU.
+   1. **Pictures:** generate each view on its own. **Make more** makes new candidates, and clicking a candidate enlarges it. **Use my picture…** uses your own image as the first view. Change the size between generations.
+   2. **Voice:** designed from the description, or cloned from your uploaded recording (2-30 s, one person speaking clearly). Keep the take you like. **Hear it** says any line you type in that voice.
+   3. **Music** or **Ambience** for sounds.
+   4. **Test clip** (optional): a 3-second clip from the kept pictures with your video model, to see whether the look holds up in motion. Clips stay with the draft.
+4. **Approve into the Library.** Optionally also add it to a project's cast and to one of that project's shots as its next reference. Until then the draft is hidden from the Library, the director and every shot. **Discard** sends it to Recently deleted.
 
-You can also just ask the director in a project chat (*"we need a lab cat"*). Its draft waits under the Create button for you.
+You can also just ask the director in a project chat (*"we need a lab cat"*). Its draft appears on the Create page for you to finish.
 
 ## Planning with the director
 
