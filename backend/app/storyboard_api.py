@@ -235,6 +235,8 @@ async def batch_review(project_id: str, request: Request):
         n_refs = len(refs)
         takes = (await s.db.fetchone("SELECT COUNT(*) AS n FROM takes WHERE shot_id = ?", (sid,)))["n"]
         template = await s.caps.effective_template(shot, project, n_refs)
+        if (song := await s.music.song_template(shot, bool(n_refs))) is not None:
+            template = song["template"]  # a lip-sync music video: the song-driven model renders it
         try:
             snd = sound.load(shot["sound"])
             issues = await s.caps.checks(template, n_refs, shot["prompt"], sound_fields=snd, refs=refs,

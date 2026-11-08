@@ -12,6 +12,7 @@ type Autonomy = ProjectDetail["autonomy"];
 const framesFor = (secs: number) => Math.round(Math.round(secs * 24) / 8) * 8 + 1;
 const secsFor = (frames: number) => Number(((frames - 1) / 24).toFixed(1));
 const BUSY = ["submitting", "queued", "running", "cancelling", "restored"];
+const RESIZABLE = new Set(["draft", "failed", "pending_approval", "ready"]);  // backend shots.EDITABLE
 const short = (t: string) => t.replace(/\.json$/, "");
 
 /** The project header's settings: a gear button and chips that summarise them; each opens the settings modal. */
@@ -86,8 +87,16 @@ function SettingsModal({ project, act, section, onClose }: {
     if (f.autonomy === "A3" && project.autonomy !== "A3" && !await ask("Turn on bounded redo (A3)? You can then start "
       + "redo runs in which FilmLab renders the director's fixes by itself, within limits you set for each run (redos per "
       + "shot, renders, GPU minutes, time). Nothing starts until you start a run.", { confirm: "Turn on" })) return;
+    // the size is for new shots; the owner may want the storyboard's shots to follow it too
+    const resizable = f.size !== project.default_resolution
+      ? project.shots.filter((s) => s.resolution !== f.size && !s.locked && RESIZABLE.has(s.status)) : [];
+    const resize = resizable.length > 0 && await ask(`Also change ${resizable.length} existing shot${resizable.length === 1 ? "" : "s"} `
+      + `to ${f.size}? The new size applies to new shots. These shots were made at another size; their next takes `
+      + "would use the new one. Locked and rendering shots stay as they are.",
+      { confirm: `Change ${resizable.length === 1 ? "it" : "them"} too`, dismiss: "Only new shots" });
     setBusy(true); setError(null);
     try {
+      if (resize) await api.bulk(project.id, { action: "set", shot_ids: resizable.map((s) => s.id), fields: { resolution: f.size } });
       if (projectChanged) {
         await api.updateProject(project.id, {  // only what changed
           ...(f.title !== project.title && { title: f.title.trim() }), ...(f.logline !== project.logline && { logline: f.logline }),

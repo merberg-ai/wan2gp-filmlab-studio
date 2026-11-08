@@ -225,24 +225,33 @@ class MusicVideo:
         p = await self.db.fetchone("SELECT * FROM projects WHERE id = ?", (shot["project_id"],))
         if not p or p["music_mode"] != "lipsync" or not p["song_file_id"]:
             return None
-        speech = song_models(await self.s.caps.matrix())
-        name = p["speech_template"] or (speech[0]["template"] if speech else None)
-        tpl = next((t for t in speech if t["template"] == name), None)
-        if not tpl:
-            raise MusicVideoError("this music video lip-syncs to its song, but WanGP has no song-driven video model "
-                                  f"named {name!r}; choose one in the project's Music video settings")
         has_refs = await self.db.fetchone("SELECT 1 FROM shot_refs WHERE shot_id = ? LIMIT 1", (shot["id"],))
-        if has_refs and tpl["refs"] == "none":
-            # the chosen model takes no pictures: the shot's characters and places would be lost
-            better = next((t for t in speech if t["refs"] != "none"), None)
-            if better:
-                tpl = better
+        tpl = await self.song_template(shot, bool(has_refs), p)
         start = await self.shot_start(shot)
         seconds = shot_seconds(shot["frames"])
         song = await self.s.library.file(p["song_file_id"])
         path = await self.slice(song, start, seconds)
         return {"template": {"template": tpl["template"], "model_type": tpl["model_type"], "task": tpl["task"]},
                 "path": path, "start_s": round(start, 3), "seconds": round(seconds, 3), "refs": tpl["refs"]}
+
+    async def song_template(self, shot: dict, has_refs: bool, p: dict | None = None) -> dict | None:
+        """The song-driven model a lip-sync shot renders with (None when the project isn't lip-synced): the one chosen
+        in the Music video settings, or, for a shot with references, one that takes pictures if the chosen one doesn't."""
+        p = p or await self.db.fetchone("SELECT * FROM projects WHERE id = ?", (shot["project_id"],))
+        if not p or p["music_mode"] != "lipsync" or not p["song_file_id"]:
+            return None
+        speech = song_models(await self.s.caps.matrix())
+        name = p["speech_template"] or (speech[0]["template"] if speech else None)
+        tpl = next((t for t in speech if t["template"] == name), None)
+        if not tpl:
+            raise MusicVideoError("this music video lip-syncs to its song, but WanGP has no song-driven video model "
+                                  f"named {name!r}; choose one in the project's Music video settings")
+        if has_refs and tpl["refs"] == "none":
+            # the chosen model takes no pictures: the shot's characters and places would be lost
+            better = next((t for t in speech if t["refs"] != "none"), None)
+            if better:
+                tpl = better
+        return tpl
 
     async def shot_start(self, shot: dict) -> float:
         """Where the shot starts in the film: the shots before it, back to back (a music video cuts)."""

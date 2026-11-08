@@ -202,3 +202,23 @@ def test_a_shot_with_references_never_lip_syncs_with_a_model_that_drops_them(mak
     st = list(h.wangp.jobs.values())[-1]["settings"]
     assert st["model_type"].startswith("minimax_h3_ref2va") and len(st["image_refs"]) == 2
     assert st["audio_guide"] and st["audio_prompt_type"] == "AS" and "I" in st["video_prompt_type"]
+    # the render review names the model that will render it, not the shot's ordinary one
+    row = next(r for r in h.c.get(f"/api/projects/{pid}/batch-review").json()["shots"] if r["shot_id"] == s["id"])
+    assert row["template"].startswith("MiniMax H3 Ref2VA")
+
+
+def test_a_new_project_size_can_be_given_to_the_existing_shots(make_harness):
+    """Live: the project was set to 720x1280 after planning, but its 13 shots stayed 480x832 (the size is for new
+    shots). Settings now offers to change them too, through the storyboard's bulk change."""
+    h = make_harness().login()
+    pid = new_project(h)
+    a = new_shot(h, pid, title="A", resolution="832x480")
+    b = new_shot(h, pid, title="B", resolution="832x480")
+    h.post(f"/api/shots/{b['id']}/lock", {"locked": True})
+    assert h.c.patch(f"/api/projects/{pid}", json={"default_resolution": "1280x720"},
+                     headers={"x-csrf-token": h.csrf}).status_code == 200
+    assert {s["resolution"] for s in h.project(pid)["shots"]} == {"832x480"}  # new shots only, unless asked
+    r = h.post(f"/api/projects/{pid}/bulk", {"action": "set", "shot_ids": [a["id"], b["id"]],
+                                            "fields": {"resolution": "1280x720"}}).json()
+    assert r["done"] == [a["id"]] and [x["shot_id"] for x in r["skipped"]] == [b["id"]]
+    assert {s["id"]: s["resolution"] for s in h.project(pid)["shots"]} == {a["id"]: "1280x720", b["id"]: "832x480"}

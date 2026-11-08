@@ -6,12 +6,12 @@ import { type RefObject, useEffect, useRef, useState } from "react";
  *  question's verb ("Delete", "Restore", "Generate"…), and destructive verbs get a red button. */
 
 interface Request {
-  id: number; title: string; body: string; confirm: string; danger: boolean;
+  id: number; title: string; body: string; confirm: string; danger: boolean; dismiss?: string;
   input?: { value: string; placeholder?: string };
   resolve: (v: boolean | string | null) => void;
 }
 
-export interface AskOptions { title?: string; confirm?: string; danger?: boolean }
+export interface AskOptions { title?: string; confirm?: string; danger?: boolean; dismiss?: string }
 
 let seq = 0;
 let queue: Request[] = [];
@@ -44,7 +44,8 @@ function push(r: Omit<Request, "id" | "resolve">): Promise<boolean | string | nu
 
 export function ask(message: string, opts: AskOptions = {}): Promise<boolean> {
   const { title, body } = opts.title ? { title: opts.title, body: message } : split(message);
-  return push({ title, body, confirm: opts.confirm ?? verb(title), danger: opts.danger ?? DANGER.test(title) })
+  return push({ title, body, confirm: opts.confirm ?? verb(title), danger: opts.danger ?? DANGER.test(title),
+                dismiss: opts.dismiss })
     .then((v) => v === true);
 }
 
@@ -138,7 +139,7 @@ function DialogView({ r }: { r: Request }) {
         {r.input && <input value={value} placeholder={r.input.placeholder} onChange={(e) => setValue(e.target.value)}
                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); accept(); } }} />}
         <div className="modal-actions">
-          <button className="ghost dismiss" onClick={() => close(r.input ? null : false)}>{r.input ? "Cancel" : "Go back"}</button>
+          <button className="ghost dismiss" onClick={() => close(r.input ? null : false)}>{r.input ? "Cancel" : r.dismiss ?? "Go back"}</button>
           <button className={`confirm ${r.danger ? "danger" : "primary"}`} onClick={accept}
                   disabled={!!r.input && !value.trim()}>{r.confirm}</button>
         </div>
