@@ -950,3 +950,20 @@ progress { -webkit-appearance: none; appearance: none; height: 6px; border: 0; b
 progress::-webkit-progress-bar { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
 progress::-webkit-progress-value { background: var(--accent); border-radius: 3px; }
 progress::-moz-progress-bar { background: var(--accent); border-radius: 3px; }
+
+/* Project cards (Projects.tsx): a 16:9 picture on top; hover plays the cover take */
+.project-card { padding: 0; overflow: hidden; display: grid; gap: 0; text-decoration: none; color: inherit; }
+.pc-picture { position: relative; aspect-ratio: 16 / 9; background: #0d0f14; overflow: hidden; }
+.pc-picture img, .pc-picture video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.pc-picture img { transition: transform .4s ease; }
+.project-card:hover .pc-picture img { transform: scale(1.03); }
+.pc-empty { display: grid; place-items: center;
+  background: radial-gradient(120% 120% at 15% 10%, rgba(217, 164, 65, 0.22), transparent 55%),
+              radial-gradient(120% 120% at 90% 100%, rgba(91, 155, 213, 0.18), transparent 60%), #10131a; }
+.pc-initials { font-size: 34px; font-weight: 700; letter-spacing: .04em; color: rgba(255, 255, 255, 0.55); }
+.pc-tag, .pc-live { position: absolute; top: 8px; padding: 2px 8px; border-radius: 999px; font-size: 11px;
+  background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.pc-tag { left: 8px; color: var(--text); }
+.pc-live { right: 8px; display: inline-flex; align-items: center; gap: 6px; color: var(--accent); }
+.pc-text { display: grid; gap: 3px; padding: 10px 12px 12px; }
+.pc-logline { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

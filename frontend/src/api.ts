@@ -6,7 +6,13 @@ export type ShotStatus =
   | "draft" | "pending_approval" | "approved" | "queued"
   | "rendering" | "ready" | "failed" | "cancelled";
 
-export interface Project { id: string; title: string; logline: string; updated_at: string; shot_count?: number }
+export interface Project {
+  id: string; title: string; logline: string; updated_at: string; shot_count?: number;
+  /** For the Projects page's card */
+  shots_rendered?: number; seconds?: number; rendering?: boolean; template?: string | null; music_mode?: string | null;
+  cover?: { kind: "take" | "ref"; thumb: string; video?: string; take_id?: string; picked?: boolean } | null;
+  cover_take_id?: string | null;
+}
 export interface Shot {
   id: string; project_id: string; position: number; title: string; description: string; prompt: string;
   template: string; model_type: string; resolution: string; frames: number; seed: number;
@@ -380,6 +386,8 @@ export const api = {
   trash: () => request<Trash>("GET", "/api/trash"),
   restore: (kind: TrashKind, id: string) => request("POST", `/api/trash/${kind}/${id}/restore`),
   purge: (kind: TrashKind, id: string) => request<{ files_removed: number }>("DELETE", `/api/trash/${kind}/${id}`),
+  setCover: (projectId: string, takeId: string | null) =>
+    request<{ cover_take_id: string | null }>("PUT", `/api/projects/${projectId}/cover`, { take_id: takeId }),
   musicVideo: (projectId: string) => request<MusicVideoSetup>("GET", `/api/projects/${projectId}/music-video`),
   updateMusicVideo: (projectId: string, patch: Partial<{ mode: MusicMode | null; lyrics: string; style: string;
     speech_template: string | null; song_file_id: string | null }>) =>

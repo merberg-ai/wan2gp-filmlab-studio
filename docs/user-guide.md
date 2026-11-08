@@ -32,6 +32,8 @@ On a wide screen the project's header is one compact row, the **timeline** (leng
 
 ## Projects
 
+Each project's card on the Projects page shows a picture: the take you chose with **☆ Set as cover**, else the take the edit uses for the opening shot, else the first shot's reference image, else a placeholder. Hover over it to play the cover take. The card also shows the project's template, a **Rendering** badge while something renders, and how many shots there are, how many are rendered and how long the film is.
+
 **Projects → New project.** Give it a title and, optionally, a template:
 
 | Template | Good for |
@@ -187,6 +189,7 @@ A take that looks wrong is **flagged ⚠**. Inspection is advice; it never delet
 - Mark each take **👍 Good**, **🤔 Maybe** or **👎 Reject**, and add notes on what works and what doesn't.
 - **Use in edit** picks the take the edit uses (by default the newest good one).
 - **Compare A/B…** plays two takes side by side, in sync, and **Keep this one** picks it for the edit.
+- **☆ Set as cover** makes the take the project's picture on the Projects page; **★ Cover** puts it back to FilmLab's choice.
 - Move the pointer over a take's thumbnail to **scrub** through it.
 - **Keys** while a take shows: <kbd>J</kbd>/<kbd>K</kbd> previous and next take, <kbd>Space</kbd> play, <kbd>A</kbd> good, <kbd>M</kbd> maybe, <kbd>R</kbd> reject, <kbd>C</kbd> compare.
 - **Review mode** (in the Renders panel, made for phones) shows one take at a time, full screen and looping: swipe **right** for 👍 good, **left** for 👎 reject, **up** for 🤔 maybe, and it moves to the next. It starts at the first take you haven't reviewed.

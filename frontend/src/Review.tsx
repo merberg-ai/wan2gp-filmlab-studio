@@ -7,9 +7,11 @@ type Act = (fn: () => Promise<unknown>) => Promise<void>;
 const VERDICT: Record<string, string> = { good: "👍 Good", maybe: "🤔 Maybe", reject: "👎 Reject" };
 
 /** Verdict, notes and "use in the edit" for one take. */
-export function TakeReview({ take, shot, used, act, onCompare, newest, shotBusy, queueBusy }: {
+export function TakeReview({ take, shot, used, act, onCompare, newest, shotBusy, queueBusy, cover }: {
   take: Take; shot: Shot | null; used: boolean; act: Act; onCompare?: () => void;
   newest?: boolean; shotBusy?: boolean; queueBusy?: boolean;
+  /** The project's cover on the Projects page: whether this take is it, and how to set it */
+  cover?: { isCover: boolean; set: (takeId: string | null) => Promise<unknown> };
 }) {
   const [notes, setNotes] = useState(take.notes ?? "");
   useEffect(() => setNotes(take.notes ?? ""), [take.id, take.notes]);
@@ -32,6 +34,11 @@ export function TakeReview({ take, shot, used, act, onCompare, newest, shotBusy,
           : <button className="ghost small" disabled={take.verdict === "reject"} title="Use this take for the shot in the edit"
               onClick={() => act(() => api.selectTake(shot.id, take.id))}>Use in edit</button>)}
         {onCompare && <button className="ghost small" onClick={onCompare}>Compare A/B…</button>}
+        {cover && (cover.isCover
+          ? <button className="ghost small on" aria-pressed title="This take is the project's picture on the Projects page; click to let FilmLab choose again"
+              onClick={() => act(() => cover.set(null))}>★ Cover</button>
+          : <button className="ghost small" title="Show this take on the project's card on the Projects page"
+              onClick={() => act(() => cover.set(take.id))}>☆ Set as cover</button>)}
         <button className="ghost small danger-text" title="Move this take to Recently deleted (restorable)" onClick={() => act(async () => {
           if (await ask("Move this take to Recently deleted? The shot and its other takes stay; you can restore it from there."))
             await api.deleteTake(take.id);

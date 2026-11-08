@@ -316,6 +316,37 @@ class Studio:
 
 # --- request models ------------------------------------------------------
 
+class CoverIn(BaseModel):
+    take_id: str | None = None
+
+
+async def project_cover(s: "Studio", p: dict) -> dict | None:
+    """What a project's card shows: the take the owner picked, else the take the edit uses for the first shot that
+    has one (how the film opens), else the first shot's first reference image; None for a placeholder."""
+    take = None
+    if p.get("cover_take_id"):
+        take = await s.db.fetchone("SELECT t.id, t.media_id, t.thumb_media_id FROM takes t JOIN shots sh ON sh.id = "
+                                   "t.shot_id WHERE t.id = ? AND t.deleted_at IS NULL AND sh.deleted_at IS NULL",
+                                   (p["cover_take_id"],))
+    picked = bool(take)
+    order = None
+    if not take:
+        order = await s.storyboard.order(p["id"])
+        for sid in order:
+            shot = await s.db.fetchone("SELECT * FROM shots WHERE id = ?", (sid,))
+            chosen = shot and await s.edit.chosen_take(shot)
+            if chosen:
+                take = await s.db.fetchone("SELECT id, media_id, thumb_media_id FROM takes WHERE id = ?", (chosen["id"],))
+                break
+    if take and take["thumb_media_id"]:
+        return {"kind": "take", "take_id": take["id"], "picked": picked,
+                "thumb": f"/api/media/{take['thumb_media_id']}", "video": f"/api/media/{take['media_id']}"}
+    for sid in (order if order is not None else await s.storyboard.order(p["id"]))[:3]:
+        ref = await s.db.fetchone("SELECT file_id FROM shot_refs WHERE shot_id = ? ORDER BY position LIMIT 1", (sid,))
+        if ref:
+            return {"kind": "ref", "thumb": f"/api/library/files/{ref['file_id']}?thumb=1"}
+    return None
+
 class Login(BaseModel):
     username: str = Field(max_length=64)
     password: str = Field(max_length=256)
@@ -453,9 +484,35 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
 
     @app.get("/api/projects")
     async def list_projects(request: Request, _=owner):
-        return await st(request).db.fetchall(
-            "SELECT p.*, (SELECT COUNT(*) FROM shots s WHERE s.project_id = p.id AND s.deleted_at IS NULL) AS shot_count "
+        s = st(request)
+        rows = await s.db.fetchall(
+            "SELECT p.*, (SELECT COUNT(*) FROM shots s WHERE s.project_id = p.id AND s.deleted_at IS NULL) AS shot_count, "
+            "(SELECT COUNT(*) FROM shots s WHERE s.project_id = p.id AND s.deleted_at IS NULL AND EXISTS (SELECT 1 FROM "
+            "takes t WHERE t.shot_id = s.id AND t.deleted_at IS NULL)) AS shots_rendered, "
+            "(SELECT COALESCE(SUM(s.frames - 1), 0) / 24.0 FROM shots s WHERE s.project_id = p.id AND s.deleted_at IS NULL) "
+            "AS seconds, "
+            f"(SELECT COUNT(*) FROM render_jobs j WHERE j.project_id = p.id AND j.status IN {ACTIVE}) AS rendering "
             "FROM projects p WHERE p.deleted_at IS NULL ORDER BY updated_at DESC")
+        for p in rows:
+            p["cover"] = await project_cover(s, p)
+            p["rendering"] = bool(p["rendering"])
+        return rows
+
+    @app.put("/api/projects/{project_id}/cover")
+    async def set_cover(project_id: str, body: CoverIn, request: Request, _=owner):
+        """The take shown on the project's card; null goes back to FilmLab's choice (the opening take)."""
+        s = st(request)
+        await project_or_404(s, project_id)
+        if body.take_id:
+            t = await s.db.fetchone("SELECT t.id FROM takes t JOIN shots sh ON sh.id = t.shot_id WHERE t.id = ? AND "
+                                    "sh.project_id = ? AND t.deleted_at IS NULL AND sh.deleted_at IS NULL",
+                                    (body.take_id, project_id))
+            if not t:
+                raise HTTPException(409, "that take isn't one of this project's")
+        await s.db.execute("UPDATE projects SET cover_take_id = ? WHERE id = ?", (body.take_id or None, project_id))
+        await s.db.audit("owner", "project.cover", project_id, {"take_id": body.take_id})
+        await s.bus.publish("project.updated", {"project_id": project_id}, project_id)
+        return {"cover_take_id": body.take_id or None}
 
     @app.post("/api/projects", status_code=201)
     async def create_project(body: ProjectIn, request: Request, _=owner):
@@ -554,6 +611,9 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
     async def get_project(project_id: str, request: Request, _=owner):
         s = st(request)
         project = await project_or_404(s, project_id)
+        # Busy before the reads: a turn ending mid-request then shows "busy" one poll longer, never "done" with the
+        # storyboard as it was before the turn's last parts.
+        busy = s.chat.busy(project_id)
         # One consistent read: a render finishing mid-request must not show a done job on a rendering shot.
         shot_rows, jobs, takes, approvals = await s.db.fetchall_many(
             ("SELECT * FROM shots WHERE project_id = ? AND deleted_at IS NULL ORDER BY position", (project_id,)),
@@ -589,7 +649,7 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
         for sh in shot_rows:
             sh["locked"] = bool(sh["locked"])
         return project | {"shots": shot_rows, "jobs": jobs, "takes": takes, "approvals": approvals,
-                          "director_busy": s.chat.busy(project_id), "last_event_id": await s.bus.last_event_id()}
+                          "director_busy": busy, "last_event_id": await s.bus.last_event_id()}
 
     # shots -----------------------------------------------------------------
 
