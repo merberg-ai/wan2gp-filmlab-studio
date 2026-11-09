@@ -173,8 +173,9 @@ async def request_approval(db: Database, bus: EventBus, shot: dict, actor: str, 
 
 
 async def approve(db: Database, bus: EventBus, shot: dict, actor: str) -> dict:
-    """Owner-only: approve a draft/pending/failed shot so it may render."""
-    if shot["status"] not in ("draft", "pending_approval", "failed", "ready"):
+    """Owner-only: approve a draft/pending/failed shot so it may render. An already approved shot (its render was
+    cancelled before a take existed) stays approved, so it can be rendered again; submit() refuses a second job."""
+    if shot["status"] not in ("draft", "pending_approval", "failed", "ready", "approved"):
         raise ShotError(f"shot is {shot['status']}")
     await db.execute("UPDATE approvals SET status = 'approved', decided_at = ? WHERE shot_id = ? AND status = 'pending'",
                      (now(), shot["id"]))

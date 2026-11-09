@@ -317,6 +317,23 @@ def test_cancel_of_restored_task_removes_only_filmlabs_queue_task(make_harness):
     assert proj["shots"][0]["status"] == "approved" and not proj["takes"]
 
 
+def test_shot_cancelled_before_its_first_take_renders_again(make_harness):
+    h = make_harness("slow").login()
+    pid = new_project(h)
+    shot = new_shot(h, pid)
+    first = h.post(f"/api/shots/{shot['id']}/approve-and-render").json()
+    h.wait_for(lambda: h.project(pid)["jobs"][0]["status"] == "running", what="running")
+    assert h.post(f"/api/jobs/{first['id']}/cancel").status_code == 200
+    h.wait_for(lambda: h.project(pid)["jobs"][0]["status"] == "cancelled", what="cancelled")
+    assert h.project(pid)["shots"][0]["status"] == "approved"
+    r = h.post(f"/api/shots/{shot['id']}/approve-and-render")
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] != first["id"]
+    # Still one render at a time: a second click while it runs is refused.
+    assert h.post(f"/api/shots/{shot['id']}/approve-and-render").status_code == 422
+    assert len(h.project(pid)["jobs"]) == 2
+
+
 def test_render_new_take_uses_a_new_request_id(make_harness):
     h = make_harness().login()
     pid = new_project(h)
