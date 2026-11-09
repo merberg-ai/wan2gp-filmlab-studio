@@ -287,6 +287,13 @@ function BriefPanel({ project, act }: { project: ProjectDetail; act: Act }) {
           <input type="number" min={0} max={600} step={5} value={target} onChange={(e) => setTarget(Number(e.target.value))} />
         </label>
         <span className="grow" />
+        <label className="small" title="The Library is shared by all your projects. A fresh start keeps the director from building this film out of characters, places and props from earlier ones.">Library
+          <select value={project.plan_library ?? "fit"}
+            onChange={(e) => act(() => api.updateProject(project.id, { plan_library: e.target.value as "fit" | "none" }))}>
+            <option value="fit">Only what the brief calls for</option>
+            <option value="none">Fresh start: don't use it</option>
+          </select>
+        </label>
         {dirty && <button className="ghost small" onClick={() => act(save)}>Save brief</button>}
         {project.shots.length > 0 && (
           <button className="ghost small" disabled={busy} title="Add the director's plan after the current shots"

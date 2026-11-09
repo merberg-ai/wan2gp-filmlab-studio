@@ -23,10 +23,11 @@ async def enhance_request(s, shot: dict) -> str:
         await s.db.execute("UPDATE shots SET idea = ? WHERE id = ?", (shot["prompt"], shot["id"]))
         shot = shot | {"idea": shot["prompt"]}
     scene = shot["scene_id"] and await s.db.fetchone("SELECT * FROM scenes WHERE id = ?", (shot["scene_id"],))
-    project = await s.db.fetchone("SELECT brief, logline, style FROM projects WHERE id = ?", (shot["project_id"],))
+    project = await s.db.fetchone("SELECT brief, logline, style, plan_library FROM projects WHERE id = ?",
+                                  (shot["project_id"],))
     return enhance_brief(shot, await s.library.shot_refs(shot["id"]), await s.library.cast(shot["project_id"]),
                          dict(scene) if scene else None, (project and (project["brief"] or project["logline"])) or "",
-                         (project and project["style"]) or "")
+                         (project and project["style"]) or "", fresh=bool(project and project["plan_library"] == "none"))
 
 
 def why_not(shot: dict) -> str | None:

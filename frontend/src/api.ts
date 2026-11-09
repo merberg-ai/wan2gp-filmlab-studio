@@ -221,6 +221,8 @@ export interface ProjectDetail extends Project {
   render_rates?: Record<string, { s_per_frame: number; samples: number }>;
   autonomy: "A0" | "A1" | "A2" | "A3"; inspections: Record<string, Inspection>; redo: RedoState;
   template: string | null; style: string;
+  /** How Plan with director and Enhance use the shared Library: only what fits the brief, or not at all. */
+  plan_library?: "fit" | "none";
   music_mode?: MusicMode | null; song_file_id?: string | null; lyrics?: string; song_style?: string;
   speech_template?: string | null;
   shots: Shot[]; jobs: Job[]; takes: Take[]; approvals: Approval[]; director_busy: boolean; last_event_id: number;
@@ -315,8 +317,8 @@ export const api = {
   health: () => request<Health>("GET", "/api/health"),
   queue: () => request<QueueSummary>("GET", "/api/queue"),
   projects: () => request<Project[]>("GET", "/api/projects"),
-  createProject: (title: string, logline: string, template?: string) =>
-    request<Project>("POST", "/api/projects", { title, logline, template: template || null }),
+  createProject: (title: string, logline: string, template?: string, fresh = false) =>
+    request<Project>("POST", "/api/projects", { title, logline, template: template || null, plan_library: fresh ? "none" : "fit" }),
   projectTemplates: () => request<ProjectTemplate[]>("GET", "/api/project-templates"),
   contactSheet: (pid: string) => request<{ scenes: { scene_id: string | null; title: string; time_place: string | null; shots: SheetShot[] }[];
     checks: { where: string; level: string; text: string }[] }>("GET", `/api/projects/${pid}/contact-sheet`),
@@ -337,7 +339,7 @@ export const api = {
   createShot: (pid: string, s: Partial<Shot>) => request<Shot>("POST", `/api/projects/${pid}/shots`, s),
   updateShot: (id: string, s: Partial<Shot>) => request<Shot>("PATCH", `/api/shots/${id}`, s),
   updateProject: (id: string, p: { title?: string; logline?: string; default_resolution?: string; default_frames?: number;
-    brief?: string; target_seconds?: number | null; autonomy?: string; style?: string | null }) =>
+    brief?: string; target_seconds?: number | null; autonomy?: string; style?: string | null; plan_library?: "fit" | "none" }) =>
     request<ProjectDetail>("PATCH", `/api/projects/${id}`, p),
   deleteProject: (id: string) => request("DELETE", `/api/projects/${id}`),
   deleteShot: (id: string) => request("DELETE", `/api/shots/${id}`),

@@ -20,6 +20,23 @@ async def library_catalogue(s) -> list[str]:
     return lines or ["- (the library is empty: plan shots without references, and request_image what you need)"]
 
 
+# The Library is shared by every project: without this, a new film tends to be built from whatever earlier films
+# left there (their characters, places and props) instead of from its own brief.
+LIBRARY_FIT = ("Library (shared by all my projects; refs take these image file_ids). Use an asset only when my brief "
+               "names it or clearly calls for exactly that character, place or thing, and its look fits this film's "
+               "style. Never take the story, places, characters or tone from the library: the brief alone decides them. "
+               "When nothing fits, plan the shot without references.")
+LIBRARY_NONE = ("Library: not used for this film (my choice: a fresh start). Don't use list_assets or any existing "
+                "library asset, and don't borrow ideas, names, places or characters from my other projects: everything "
+                "comes from the brief above.")
+
+
+async def library_section(s, project: dict) -> list[str]:
+    if project.get("plan_library") == "none":
+        return [LIBRARY_NONE]
+    return [LIBRARY_FIT, *await library_catalogue(s)]
+
+
 async def storyboard_summary(s, project_id: str) -> list[str]:
     scenes = {x["id"]: x for x in await s.storyboard.scenes(project_id)}
     lines = []
@@ -75,8 +92,7 @@ async def plan_brief(s, project: dict, replace: bool) -> str:
         f"Target length: {target}. New shots default to {project['default_resolution']} and "
         f"{round((project['default_frames'] - 1) / 24, 1)} s.",
         f"Video models: shots with references use {with_refs}; shots without use {without}.",
-        "Library (refs take these image file_ids):",
-        *await library_catalogue(s),
+        *await library_section(s, project),
     ]
     if current:
         lines += ["Current storyboard:", *current]
@@ -98,7 +114,10 @@ async def plan_brief(s, project: dict, replace: bool) -> str:
          "scene, give its scene_id."
          if replace else
          "Don't set replace_drafts: existing shots stay, and your scenes are added after them."),
-        "If something the story needs isn't in the library, plan the shot without it and request_image it. "
+        ("Every shot is planned without references (refs: []); if a recurring character or place needs a consistent "
+         "look, you may request_image a NEW design for it, made for this film's brief and style. "
+         if project.get("plan_library") == "none" else
+         "If something the story needs isn't in the library, plan the shot without it and request_image it. ") +
         "Don't request a render. When the whole brief is planned, reply starting with “All planned:” and a short "
         "summary: scenes, shots, total length, and anything missing.",
     ]

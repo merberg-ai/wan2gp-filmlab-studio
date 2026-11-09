@@ -378,6 +378,7 @@ class ProjectIn(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     logline: str = Field(default="", max_length=1000)
     template: str | None = Field(default=None, max_length=40)
+    plan_library: str = Field(default="fit", pattern="^(fit|none)$")  # "none": a fresh start, no shared Library
 
 
 class ProjectPatch(BaseModel):
@@ -389,6 +390,8 @@ class ProjectPatch(BaseModel):
     target_seconds: int | None = Field(default=None, ge=0, le=600)
     autonomy: str | None = Field(default=None, pattern="^A[0-3]$")
     style: str | None = Field(default=None, max_length=2000)
+    # How Plan with director and Enhance use the shared Library: "fit" (only what the brief calls for) or "none".
+    plan_library: str | None = Field(default=None, pattern="^(fit|none)$")
 
 
 class RenderIn(BaseModel):
@@ -546,7 +549,8 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         cols = {"id": pid, "title": body.title.strip(), "logline": body.logline.strip(), "created_at": ts,
-                "updated_at": ts, "autonomy": (await s.director_settings.get())["default_autonomy"]} | extra
+                "updated_at": ts, "autonomy": (await s.director_settings.get())["default_autonomy"],
+                "plan_library": body.plan_library} | extra
         await s.db.execute(f"INSERT INTO projects ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
                            tuple(cols.values()))
         await s.db.audit("owner", "project.create", pid, {"template": body.template} if body.template else None)

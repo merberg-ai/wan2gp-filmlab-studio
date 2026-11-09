@@ -115,6 +115,7 @@ function NewProjectModal({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState("");
   const [logline, setLogline] = useState("");
   const [template, setTemplate] = useState("");
+  const [fresh, setFresh] = useState(false);
   const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -137,7 +138,7 @@ function NewProjectModal({ onClose }: { onClose: () => void }) {
     if (!title.trim() || busy) return;
     setBusy(true); setError(null);
     try {
-      const p = await api.createProject(title.trim(), logline.trim(), template);
+      const p = await api.createProject(title.trim(), logline.trim(), template, fresh);
       onClose();
       location.hash = `#/p/${p.id}`;
     } catch (err) { setError((err as Error).message); setBusy(false); }
@@ -182,6 +183,10 @@ function NewProjectModal({ onClose }: { onClose: () => void }) {
           {chosen && (
             <p className="muted small">{chosen.target_seconds} s film, {Math.round((chosen.default_frames - 1) / 24)} s shots at
               {" "}{chosen.default_resolution}.{chosen.id === "music_video" ? " The music video setup opens next." : ""}</p>)}
+          <label className="check small np-fresh" title="You can change this later in the storyboard's Brief">
+            <input type="checkbox" className="switch" checked={fresh} onChange={(e) => setFresh(e.target.checked)} />
+            <span>Fresh start <span className="muted">· the director won't use the Library's existing characters, places and
+              props, or ideas from your other projects</span></span></label>
           <button type="submit" hidden />
         </form>
         <footer className="sm-foot">

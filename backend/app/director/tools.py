@@ -18,7 +18,7 @@ from ..library import LibraryError
 from ..presets import PresetError
 from ..renders import RenderError
 from ..runs import RunError
-from ..storyboard import PlanInvalid
+from ..storyboard import LIBRARY_OFF, PlanInvalid, library_off_limits
 from ..wangp.client import WanGPError
 
 log = logging.getLogger("filmlab.director")
@@ -319,7 +319,7 @@ class DirectorTools:
             return {"error": f"internal error in {name} ({type(exc).__name__}); check the arguments or tell the owner"}
 
     async def get_project(self, project_id):
-        project = await self.db.fetchone("SELECT id, title, logline, brief, style, target_seconds, default_resolution, "
+        project = await self.db.fetchone("SELECT id, title, logline, brief, style, plan_library, target_seconds, default_resolution, "
                                          "default_frames FROM projects WHERE id = ?", (project_id,))
         rows = await self.db.fetchall("SELECT * FROM shots WHERE project_id = ? AND deleted_at IS NULL ORDER BY position",
                                       (project_id,))
@@ -385,6 +385,11 @@ class DirectorTools:
         if shot["locked"]:
             raise shots.ShotError(f"shot {shot['position']} is locked by the owner; propose the change in chat instead")
         refs = [await self._resolve_ref(r) for r in _normalise_refs(refs)]
+        project = await self.db.fetchone("SELECT * FROM projects WHERE id = ?", (project_id,))
+        for r in refs:
+            v = await self.db.fetchone("SELECT asset_id FROM variants WHERE id = ?", (r["variant_id"],))
+            if v and await library_off_limits(self.db, project, v["asset_id"]):
+                raise ValueError(LIBRARY_OFF)
         result = await self.library.set_shot_refs(shot, refs, self.ACTOR, rationale)
         await self.studio.refs.sync_template_soon(shot, len(result))
         await shots.refs_changed(self.db, self.bus, shot, self.ACTOR)

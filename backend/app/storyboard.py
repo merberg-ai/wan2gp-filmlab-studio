@@ -21,6 +21,17 @@ from .media import snap_frames
 
 MAX_SCENES, MAX_SHOTS, MAX_REFS = 12, 30, 8
 REPLACEABLE = ("draft", "pending_approval")
+LIBRARY_OFF = ("this project doesn't use the Library (the owner chose a fresh start): plan the shot without "
+               "references, or request_image a new design for this film")
+
+
+async def library_off_limits(db: Database, project: dict, asset_id: str) -> bool:
+    """A fresh-start project (plan_library 'none'): the director may only use assets made since the project began
+    (new designs for this film), never what earlier films left in the shared Library."""
+    if project.get("plan_library") != "none":
+        return False
+    a = await db.fetchone("SELECT created_at FROM assets WHERE id = ?", (asset_id,))
+    return bool(a and a["created_at"] < project["created_at"])
 
 
 class StoryboardError(ValueError):
@@ -345,6 +356,8 @@ class Storyboard:
                     img = await self._image(fid)
                     if not img:
                         e.append(f"refs[{k}] '{fid}' isn't a library image (use images[].file_id from get_asset)")
+                    elif await library_off_limits(self.db, project, img["asset_id"]):
+                        e.append(f"refs[{k}]: {LIBRARY_OFF}")
                     else:
                         refs.append(img)
                 shot["refs"] = refs
@@ -398,8 +411,17 @@ class Storyboard:
         kept = [s for s in live if s not in replaced]
         ts = now()
         created_scenes, created_shots, revisions = [], [], []
-        scene_pos = (await self.db.fetchone("SELECT COALESCE(MAX(position), 0) AS p FROM scenes WHERE project_id = ?",
-                                            (project_id,)))["p"]
+        # A re-plan also clears the scenes it leaves empty (else the old plan's scene titles stay on the storyboard,
+        # next to the new plan's): those with no kept shot that the new plan doesn't add to.
+        emptied = set()
+        if p["replace_drafts"]:
+            reused = {sc["scene_id"] for sc in p["scenes"] if sc["scene_id"]}
+            holding = {s["scene_id"] for s in kept if s["scene_id"]}
+            emptied = {r["id"] for r in await self.db.fetchall(
+                "SELECT id FROM scenes WHERE project_id = ? AND deleted_at IS NULL", (project_id,))} - reused - holding
+        scene_pos = max([r["position"] for r in await self.db.fetchall(
+            "SELECT id, position FROM scenes WHERE project_id = ? AND deleted_at IS NULL", (project_id,))
+            if r["id"] not in emptied], default=0)
         shot_pos = max([s["position"] for s in kept], default=0)
 
         def write(c):
@@ -408,6 +430,9 @@ class Storyboard:
                 c.execute("UPDATE shots SET deleted_at = ?, updated_at = ? WHERE id = ?", (ts, ts, s["id"]))
                 c.execute("UPDATE approvals SET status = 'withdrawn', decided_at = ? WHERE shot_id = ? "
                           "AND status = 'pending'", (ts, s["id"]))
+            for sid in emptied:
+                c.execute("UPDATE scenes SET deleted_at = ?, updated_at = ? WHERE id = ?", (ts, ts, sid))
+                c.execute("UPDATE shots SET scene_id = NULL WHERE scene_id = ?", (sid,))  # replaced (deleted) shots
             for sc in p["scenes"]:
                 if sc["scene_id"]:
                     sid = sc["scene_id"]

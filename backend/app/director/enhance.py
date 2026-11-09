@@ -22,7 +22,8 @@ SOUND_RULE = ("The model makes the sound too, and invents mumbled speech when a 
 
 
 def enhance_brief(shot: dict, refs: list[dict], cast: list[dict], scene: dict | None = None, story: str = "",
-                  style: str = "") -> str:
+                  style: str = "", fresh: bool = False) -> str:
+    """fresh: the project doesn't use the shared Library (plan_library 'none'): no references are picked from it."""
     """Built from the owner's idea, never from an earlier rewrite, so each Enhance starts clean."""
     seconds = round((shot["frames"] - 1) / 24, 1)
     lines = [
@@ -48,12 +49,17 @@ def enhance_brief(shot: dict, refs: list[dict], cast: list[dict], scene: dict | 
             lines.append("Every character must be clearly visible: give each one a place in the frame (left, right, "
                          "foreground, background) and an action of its own, with a few words on how they look, so "
                          "the model can tell them apart. A character mentioned only in passing gets left out.")
+    elif fresh:
+        lines.append("It has no references, and this film doesn't use the Library (my choice: a fresh start): don't "
+                     "look for or assign library assets, and take nothing from my other projects. Describe every "
+                     "character and place fully in the prompt instead.")
     else:
         names = ", ".join(f"{a['name']} ({a['kind']})" for a in cast) or "none yet"
         lines += [
             f"It has no references yet. Cast of this project: {names}.",
             f"Use list_assets with shot_id {shot['id']} (ranked for this shot, with the look the scene already uses) and "
-            "get_asset to find library assets that fit what I wrote, and assign_refs them "
+            "get_asset to find library assets that fit what I wrote (only ones that truly fit this film's story and "
+            "style: the library holds assets from all my projects), and assign_refs them "
             "(most important first: the main character, then the setting; at most 4, one image each unless a second "
             "angle really helps). If something the shot needs isn't in the library, you may request_image for it "
             "(I approve it in the Library) and say what you asked for.",

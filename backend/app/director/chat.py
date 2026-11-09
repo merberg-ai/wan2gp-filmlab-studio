@@ -34,6 +34,9 @@ def project_header(project: dict, body: str = "") -> str:
     style = " ".join((project.get("style") or "").split())[:STYLE_CHARS]
     if style and "Style for this film" not in body:
         head += f"\n[Style for this film (follow it in every prompt you write): {style}]"
+    if project.get("plan_library") == "none" and "Library: not used" not in body and "doesn't use the Library" not in body:
+        head += ("\n[This film doesn't use the shared Library (a fresh start): no existing library assets as "
+                 "references, and nothing borrowed from my other projects.]")
     return head
 
 
@@ -156,7 +159,7 @@ class DirectorChat:
 
     async def _turn(self, project_id: str, turn_id: str, text: str, rounds: int | None,
                     expect: tuple[str, str] | None = None, parts: int = 0, resume=None):
-        project = await self.db.fetchone("SELECT title, style FROM projects WHERE id = ?", (project_id,))
+        project = await self.db.fetchone("SELECT title, style, plan_library FROM projects WHERE id = ?", (project_id,))
         conversation, notes, model = f"filmlab:project:{project_id}", "", None
         try:
             if self.settings:

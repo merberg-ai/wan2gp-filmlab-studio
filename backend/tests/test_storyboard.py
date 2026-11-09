@@ -114,6 +114,43 @@ def test_replan_keeps_locked_and_rendered_shots(make_harness, images):
     assert h.post(f"/api/shots/{locked}/enhance").status_code == 409
 
 
+def test_a_fresh_start_project_keeps_the_library_out(make_harness, images):
+    from app.director.chat import project_header
+    from app.director.planning import LIBRARY_FIT, LIBRARY_NONE
+    h = make_harness().login()
+    _, _, hv, _ = refs_setup(h, images)  # assets an earlier film left in the Library
+    hale = files_of(h, hv)[0]
+    r = h.post("/api/projects", {"title": "Heavy Metal", "plan_library": "none"})
+    assert r.status_code == 201 and r.json()["plan_library"] == "none"
+    pid = r.json()["id"]
+    # The director can't build the film from them: not in a plan, not by assign_refs.
+    out = run(h, pid, "plan_storyboard", scenes=[{"title": "Arrival", "shots": [
+        shot("Rider", "<Picture 1> rides across a burning desert at dusk", refs=[hale])]}])
+    assert "doesn't use the Library" in "\n".join(out["errors"])
+    out = run(h, pid, "plan_storyboard", scenes=[{"title": "Arrival", "shots": [
+        shot("Rider", "A lone rider crosses a burning desert at dusk, chrome armour glinting")]}])
+    sid = out["created_shots"][0]
+    assert "doesn't use the Library" in run(h, pid, "assign_refs", shot_id=sid, refs=[{"file_id": hale}])["error"]
+    # Plan with director leaves the catalogue out and says why; chat turns carry the choice too.
+    patch(h, f"/api/projects/{pid}", {"brief": "A lone rider crosses a burning desert to a chrome temple."})
+    h.post(f"/api/projects/{pid}/plan", {"replace_drafts": True})
+    h.wait_for(lambda: not h.project(pid)["director_busy"], what="planned")
+    brief = [m for m in h.c.get(f"/api/projects/{pid}/chat").json() if m["role"] == "user"][-1]["content"]
+    assert LIBRARY_NONE in brief and hale not in brief and LIBRARY_FIT not in brief
+    assert "doesn't use the shared Library" in project_header({"title": "T", "style": "", "plan_library": "none"})
+    assert "Library" not in project_header({"title": "T", "style": "", "plan_library": "fit"})
+    # Switched back to the Library: the catalogue comes with its limits; bad values are refused.
+    assert patch(h, f"/api/projects/{pid}", {"plan_library": "all"}).status_code == 422
+    assert patch(h, f"/api/projects/{pid}", {"plan_library": "fit"}).json()["plan_library"] == "fit"
+    h.post(f"/api/projects/{pid}/plan", {"replace_drafts": True})
+    h.wait_for(lambda: not h.project(pid)["director_busy"], what="planned")
+    brief = [m for m in h.c.get(f"/api/projects/{pid}/chat").json() if m["role"] == "user"][-1]["content"]
+    assert LIBRARY_FIT in brief and hale in brief
+    assert run(h, pid, "assign_refs", shot_id=h.project(pid)["shots"][-1]["id"], refs=[{"file_id": hale}]).get("references")
+    # An existing project is "fit" by default.
+    assert h.project(new_project(h, "Old"))["plan_library"] == "fit"
+
+
 def test_plan_with_director_sends_the_brief_and_library(make_harness, images):
     h = make_harness().login()
     pid = new_project(h)
@@ -132,8 +169,11 @@ def test_plan_with_director_sends_the_brief_and_library(make_harness, images):
     # A re-plan asks for replace_drafts and lists the current storyboard.
     h.post(f"/api/shots/{proj['shots'][0]['id']}/lock", {"locked": True})
     assert h.post(f"/api/projects/{pid}/plan", {"replace_drafts": True}).status_code == 202
-    proj = h.wait_for(lambda: (x := h.project(pid)) and not x["director_busy"] and len(x["scenes"]) == 4 and x,
+    # The first plan's second scene lost all its shots to the re-plan, so it goes too (no empty duplicate titles);
+    # the first scene keeps the locked shot.
+    proj = h.wait_for(lambda: (x := h.project(pid)) and not x["director_busy"] and len(x["shots"]) == 4 and x,
                       what="replanned")
+    assert len(proj["scenes"]) == 3 and all(any(s["scene_id"] == sc["id"] for s in proj["shots"]) for sc in proj["scenes"])
     brief = [m for m in h.c.get(f"/api/projects/{pid}/chat").json() if m["role"] == "user"][-1]["content"]
     assert "Set replace_drafts: true" in brief and "locked" in brief and "Current storyboard:" in brief
     assert [s["title"] for s in proj["shots"]] == ["Hale waits", "Hale waits", "Fog", "March"]
