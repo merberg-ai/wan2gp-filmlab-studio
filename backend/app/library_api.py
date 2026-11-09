@@ -342,6 +342,77 @@ async def generate(variant_id: str, body: GenerateIn, request: Request):
         raise bad(exc) from exc
 
 
+class CropIn(BaseModel):
+    x: float
+    y: float
+    w: float
+    h: float
+
+
+class GrabIn(BaseModel):
+    media_id: str | None = None  # a take's video
+    file_id: str | None = None   # or a library picture
+    t: float = Field(default=0.0, ge=0, le=36000)
+    crop: CropIn | None = None
+
+
+class ExtractEditIn(BaseModel):
+    prompt: str = Field(min_length=3, max_length=4000)
+    template: str | None = None
+    count: int | None = Field(default=None, ge=1, le=4)
+    resolution: str | None = None
+
+
+class ExtractIn(BaseModel):
+    file_id: str
+    kind: str
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    tags: str = Field(default="", max_length=500)
+    source_note: str = Field(default="", max_length=500)
+    edit: ExtractEditIn | None = None
+
+
+@router.post("/api/library/frames", status_code=201)
+async def grab_frame(body: GrabIn, request: Request):
+    """A frame of a take (or a crop of a picture), stored as a library image for Extract."""
+    from .extract import ExtractError
+    try:
+        return await st(request).extractor.grab(body.media_id, body.file_id, body.t,
+                                                body.crop.model_dump() if body.crop else None)
+    except (ExtractError, LibraryError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/api/library/frames/upload", status_code=201)
+async def upload_frame(request: Request):
+    """A picture from the owner's computer for Extract (raw body), not yet in any asset."""
+    s = st(request)
+    data = await _body(request)
+    try:
+        f = await s.library.store_bytes(data, "upload")
+    except LibraryError as exc:
+        raise bad(exc) from exc
+    if f["kind"] != "image":
+        raise HTTPException(422, "Extract takes a picture (PNG, JPEG or WebP)")
+    return {"id": f["id"], "file_id": f["id"], "width": f["width"], "height": f["height"], "source_note": "Uploaded picture"}
+
+
+@router.post("/api/library/extract", status_code=201)
+async def extract(body: ExtractIn, request: Request):
+    """A new asset from an extracted picture: as its look, or reworked by a WanGP image model first (uses the GPU)."""
+    from .extract import ExtractError
+    s = st(request)
+    if body.edit:
+        wangp_ready(s)
+    fields = {"kind": body.kind, "name": body.name, "description": body.description, "tags": body.tags}
+    try:
+        return await s.extractor.create(s, fields, body.file_id, body.source_note,
+                                        body.edit.model_dump() if body.edit else None)
+    except (ExtractError, LibraryError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.post("/api/library/candidates/{candidate_id}/keep")
 async def keep(candidate_id: str, body: FileMeta, request: Request):
     try:

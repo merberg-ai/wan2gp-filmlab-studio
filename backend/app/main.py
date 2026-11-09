@@ -34,6 +34,7 @@ from .director.gateway import GatewayClient
 from .director.tools import DirectorTools
 from .events import EventBus
 from .creator import Creator
+from .extract import Extractor
 from .images import ImageJobs
 from .inspect_takes import Inspector
 from .runs import Runs
@@ -124,6 +125,7 @@ class Studio:
         self.renders.reupload_refs = self.refs.reupload
         self.renders.reupload_voices = self._reupload_voices
         self.images = ImageJobs(self.renders, self.library, self.refs, self.caps)
+        self.extractor = Extractor(self.db, self.library, settings.media_dir)  # Library → Extract
         self.trash = Trash(self.db, self.bus, self.library, self.refs, settings.media_dir)
         self.storyboard = Storyboard(self.db, self.bus, self.library, self.caps, self.renders)
         self.batches = Batches(self.db, self.bus, self.renders, self.storyboard)

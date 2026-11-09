@@ -41,6 +41,8 @@ export function LibraryPage({ assetId, subscribe }: { assetId: string | null; su
         {error && <p className="error">{error}</p>}
         <a className="primary create-btn button-link" href="#/create"
           title="Describe it; the director drafts it and WanGP makes its pictures, voice or music">✨ Create with the director…</a>
+        <a className="ghost create-btn button-link" href="#/extract"
+          title="Grab a frame of a take (or use a picture), select a character, place or thing, and make it an asset, as it is or reworked by a model">📸 Extract from a take or picture…</a>
         <NewAsset onCreated={(a) => { location.hash = `#/library/${a.id}`; load(); }} />
         <ul className="asset-list">
           {assets.map((a) => (

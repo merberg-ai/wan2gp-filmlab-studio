@@ -3,6 +3,7 @@ import { api, type Health } from "./api";
 import { type FilmLabEvent, type StreamState, useEventStream } from "./events";
 import { DialogHost } from "./Dialog";
 import { LibraryPage } from "./Library";
+import { ExtractPage } from "./Extract";
 import { Login } from "./Login";
 import { SelfTestPage } from "./SelfTest";
 import { SettingsPage } from "./Settings";
@@ -38,6 +39,7 @@ function useRoute() {
   if (cr) return { page: "create" as const, kind: "character" as AssetKind, creation: cr[1] };
   const ck = hash.match(/^#\/create(?:\/(character|location|prop|style|sound))?/);
   if (ck) return { page: "create" as const, kind: (ck[1] ?? "character") as AssetKind, creation: null };
+  if (hash.startsWith("#/extract")) return { page: "extract" as const };
   const l = hash.match(/^#\/library(?:\/([0-9a-f]+))?/);
   if (l) return { page: "library" as const, id: l[1] ?? null, creation: null };
   if (hash.startsWith("#/settings")) return { page: "settings" as const };
@@ -100,7 +102,7 @@ function Studio({ onLogout }: { onLogout: () => void }) {
         {health?.version && <span className="version muted" title="FilmLab version">v{health.version}</span>}
         <nav className="nav">
           <a href="#/" className={route.page === "projects" || route.page === "project" ? "on" : ""}>Projects</a>
-          <a href="#/library" className={route.page === "library" ? "on" : ""}>Library</a>
+          <a href="#/library" className={route.page === "library" || route.page === "extract" ? "on" : ""}>Library</a>
           <a href="#/create" className={route.page === "create" ? "on" : ""}>Create</a>
           <a href="#/settings" className={route.page === "settings" ? "on" : ""}>Settings</a>
           <a href="#/system" className={route.page === "system" ? "on" : ""}>Health &amp; backups</a>
@@ -130,6 +132,7 @@ function Studio({ onLogout }: { onLogout: () => void }) {
       <CommandPalette route={route} />
       {route.page === "project" ? <ProjectView key={route.id} projectId={route.id} tab={route.tab} subscribe={subscribe} />
         : route.page === "library" ? <LibraryPage assetId={route.id} subscribe={subscribe} />
+        : route.page === "extract" ? <ExtractPage />
           : route.page === "settings" ? <SettingsPage />
           : route.page === "deleted" ? <TrashPage />
           : route.page === "system" ? <SystemPage gpu={stream === "live" ? gpu : null} />

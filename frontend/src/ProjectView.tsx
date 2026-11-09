@@ -369,6 +369,7 @@ function MonitorPanel({ project, shot, takes, take, onTake, act, onShowAll, down
             {take.has_audio ? " · audio" : ""} · {(take.bytes / 1e6).toFixed(1)} MB{take.preview ? " · preview" : ""}
           </p>
           <TakeReview take={take} shot={takeShot} used={used?.id === take.id} act={act}
+            playhead={() => player.current?.currentTime ?? 0}
             cover={{ isCover: project.cover_take_id === take.id, set: (id) => api.setCover(project.id, id) }}
             newest={shotTakes[shotTakes.length - 1]?.id === take.id}
             shotBusy={project.jobs.some((j) => j.shot_id === take.shot_id && ACTIVE_JOB.has(j.status))}

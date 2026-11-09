@@ -90,6 +90,8 @@ export function usageWarning(what: string, usage: Usage[]): string {
     : "";
   return `Move ${what} to Recently deleted? You can restore it from there.${where}`;
 }
+export interface Crop { x: number; y: number; w: number; h: number }
+export interface Frame { file_id: string; width: number; height: number; source_note: string }
 export interface Issue { level: "block" | "warn" | "info"; message: string }
 export interface ShotChecks { template: string; follows_defaults: boolean; refs: number; issues: Issue[] }
 type FileMeta = { caption?: string; source_note?: string; license_note?: string };
@@ -138,6 +140,14 @@ export const lib = {
   deleteAsset: (id: string) => request("DELETE", `/api/library/assets/${id}`),
   deleteVariant: (id: string) => request("DELETE", `/api/library/variants/${id}`),
   fileUrl: (id: string, thumb = false) => `/api/library/files/${id}${thumb ? "?thumb=1" : ""}`,
+  /** Extract: a frame of a take at t seconds, or a crop (fractions 0-1) of a picture, as a library image. */
+  grabFrame: (b: { media_id?: string; file_id?: string; t?: number; crop?: Crop }) =>
+    request<Frame>("POST", "/api/library/frames", b),
+  uploadFrame: (file: File) => sendFile<Frame>("POST", "/api/library/frames/upload", file),
+  /** A new asset from the picture: as its look, or reworked by a reference-image model first (edit). */
+  extract: (b: { file_id: string; kind: AssetKind; name: string; description?: string; source_note?: string;
+    edit?: { prompt: string; template?: string; count?: number; resolution?: string } }) =>
+    request<{ asset_id: string; job_id: string | null; error: string | null }>("POST", "/api/library/extract", b),
   generate: (variantId: string, g: GenerateRequest) =>
     request<ImageJob>("POST", `/api/library/variants/${variantId}/generate`, g),
   creations: () => request<Creation[]>("GET", "/api/creations"),

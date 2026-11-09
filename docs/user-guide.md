@@ -70,6 +70,7 @@ The Library holds everything your films reuse: **characters, locations, props, s
 - **Images:** upload PNG, JPEG or WebP references, or generate them with WanGP from a look's **Generate** panel (from text, or from your existing images to keep identity). Generated **candidates** wait for you to **Keep** or **Discard** them.
 - **Voices:** a character can have a **Voice** sample: 5–15 seconds of one person speaking clearly (WAV of any bit depth, MP3 or FLAC). Uploads show their progress in the bottom-left corner. Whenever that character has a line, FilmLab uses it as their voice.
 - **Director requests:** when the director needs an image the Library lacks, its request appears on the asset for you to **Generate** or **Reject**.
+- **📸 Extract** (Library, or **📸 Extract** under any take): make a character, location, prop or style from a frame. Pick a take and step to the frame (◀ ▶ one frame at a time), or upload a picture, or pick a Library image; **Grab this frame**, then drag on it to select just the part you want. **Add it as it is** makes the selection the asset's look. **Rework it with a model first** sends it to a WanGP model that takes reference pictures, with a ready-made instruction for the kind (full body on a plain background, the place without people, the object alone…) that you can edit; its candidates appear on the new asset's page to **Keep**, and the original stays as the asset's *source frame* look.
 
 Use the names you give assets in your briefs (e.g. `Anthony_science`, `Jim_lab`). The director matches them.
 
