@@ -234,6 +234,26 @@ def test_soundtrack_only_and_looped(make_harness, tmp_path):
     assert patch(h, f"/api/projects/{pid}/edit", {"settings": {"mute_shots": False}}).json()["segments"][0]["mute"] is False
 
 
+def test_two_soundtracks_at_once_are_flagged(make_harness, tmp_path):
+    h = make_harness().login()
+    pid = small_project(h)
+    rendered_shot(h, pid, "A"), rendered_shot(h, pid, "B")
+    snd = asset(h, "sound", "Theme")
+    v1 = upload(h, default_variant(snd), tone(tmp_path, 3, "v1.wav"), caption="soundtrack")
+    v2 = upload(h, default_variant(snd), tone(tmp_path, 4, "v2.wav", stereo=True), caption="soundtrack")
+    track = {"start_s": 0, "gain_db": -6, "fade_in_s": 0, "fade_out_s": 0}
+    one = patch(h, f"/api/projects/{pid}/edit", {"music": [track | {"file_id": v1["file_id"]}]}).json()
+    assert not any("same time" in i for i in one["issues"])
+    both = patch(h, f"/api/projects/{pid}/edit", {"music": [track | {"file_id": v1["file_id"]},
+                                                            track | {"file_id": v2["file_id"]}]}).json()
+    assert any("music tracks 1 and 2 play at the same time" in i for i in both["issues"]), both["issues"]
+    # One after the other is fine.
+    apart = patch(h, f"/api/projects/{pid}/edit", {"music": [
+        track | {"file_id": v1["file_id"], "offset_s": 2.5},  # plays 0-0.5 s
+        track | {"file_id": v2["file_id"], "start_s": 1.0}]}).json()
+    assert not any("same time" in i for i in apart["issues"])
+
+
 def test_a_soundtrack_can_be_larger_than_an_image(make_harness, tmp_path):
     h = make_harness().login()
     snd = asset(h, "sound", "Long song")

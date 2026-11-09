@@ -70,9 +70,8 @@ export function EditView({ project, subscribe }: { project: ProjectDetail; subsc
         )}
         <div className="panel-head"><h2>Timeline</h2>
           <span className="muted small grow">order and transitions come from the storyboard</span>
-          {tl.doc.music.length < 2 && (
-            <button className="ghost small" title="Play a song (MP3, WAV or FLAC) under the film"
-              onClick={() => setSoundtrack(null)}>🎵 Add soundtrack</button>)}</div>
+          <button className="ghost small" title="Play a song (MP3, WAV or FLAC) under the film, or replace the one it has"
+            onClick={() => setSoundtrack(null)}>🎵 {tl.doc.music.length ? "New soundtrack" : "Add soundtrack"}</button></div>
         <ol className="timeline">
           {tl.segments.map((s, i) => s.kind === "clip"
             ? <ClipRow key={s.shot_id} seg={s} tl={tl} project={project} playhead={playhead} onSeek={(t) => seekRef.current(t)} patch={patch} act={act} />
@@ -259,7 +258,7 @@ function MusicPanel({ tl, patch, open }: {
         </div>
       ))}
       <div className="row small">
-        {music.length < 2 && <button className="ghost small" onClick={() => open(null)}>🎵 Add soundtrack</button>}
+        <button className="ghost small" onClick={() => open(null)}>🎵 {music.length ? "New soundtrack…" : "Add soundtrack"}</button>
         <label className="check" title="The soundtrack alone: every shot's own sound (dialogue, effects) is muted, shots added later too">
           <input type="checkbox" checked={muted} onChange={(e) => patch({ settings: { ...tl.doc.settings, mute_shots: e.target.checked },
             note: e.target.checked ? "soundtrack only: shots muted" : "shots' own sound back" })} /> Soundtrack only (mute the shots)</label>

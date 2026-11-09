@@ -1233,3 +1233,5 @@ progress:not([value])::after { content: ""; position: absolute; inset: 0; width:
 .ex-mode { display: grid; gap: 6px; }
 .ex-rework { display: grid; gap: 8px; }
 .ex-rework .row label { display: grid; gap: 3px; }
+.st-replace { display: grid; gap: 6px; }
+.st-replace .np-option { display: flex; }

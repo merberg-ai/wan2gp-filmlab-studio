@@ -291,8 +291,27 @@ class Edit:
         for cap in (x for x in texts if x["kind"] == "caption"):
             if cap["start_s"] >= total:
                 issues.append(f"caption “{cap['text'][:30]}” starts after the end of the film ({total:.1f} s)")
+        issues += await self._music_overlap(doc["music"], total)
         return {"project_id": project_id, "fps": fps, "width": w, "height": h, "segments": segments,
                 "total_s": total, "doc": doc, "issues": issues, "song_only": song_only}
+
+    async def _music_overlap(self, music: list[dict], total: float) -> list[str]:
+        """Two music tracks heard at the same time: usually a replaced soundtrack that was added a second time
+        (two versions of one song drift apart and sound like an echo)."""
+        spans = []
+        for m in music:
+            f = await self.db.fetchone("SELECT duration_s FROM library_files WHERE id = ?", (m["file_id"],))
+            left = total - m["start_s"] if m.get("loop") else ((f or {}).get("duration_s") or 0) - m["offset_s"]
+            spans.append((m["start_s"], min(total, m["start_s"] + max(0.0, left))))
+        out = []
+        for i in range(len(spans)):
+            for j in range(i + 1, len(spans)):
+                a, b = max(spans[i][0], spans[j][0]), min(spans[i][1], spans[j][1])
+                if b - a >= 1.0:
+                    out.append(f"music tracks {i + 1} and {j + 1} play at the same time ({a:.1f}-{b:.1f} s), so "
+                               "they're heard on top of each other; if one replaces the other, remove the old one "
+                               "in Soundtrack and music")
+        return out
 
     async def _changed(self, project_id: str):
         await self.bus.publish("edit.updated", {}, project_id)

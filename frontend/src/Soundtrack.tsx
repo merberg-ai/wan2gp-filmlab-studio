@@ -35,6 +35,9 @@ export function SoundtrackModal({ tl, editing, onClose, onSaved }: {
   const [pick, setPick] = useState<LibPick | null>(current ? { file_id: current.file_id, label: "the current soundtrack", duration_s: null } : null);
   const [t, setT] = useState<Omit<Music, "file_id">>(current ? { ...NEW_TRACK, ...current } : NEW_TRACK);
   const [muteShots, setMuteShots] = useState(!!tl.doc.settings.mute_shots);
+  // Adding while the film already has a soundtrack: replace it (a new version of the song) unless asked to layer.
+  const [replace, setReplace] = useState(true);
+  const existing = editing === null ? tl.doc.music.length : 0;
   const [length, setLength] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +77,7 @@ export function SoundtrackModal({ tl, editing, onClose, onSaved }: {
   const ready = source === "upload" ? !!file : !!pick;
   const film = tl.total_s;
   const set = (c: Partial<Omit<Music, "file_id">>) => setT((x) => ({ ...x, ...c }));
-  const full = tl.doc.music.length >= 2 && editing === null;
+  const full = existing >= 2 && !replace;
 
   const confirm = async () => {
     if (!ready || busy) return;
@@ -88,10 +91,13 @@ export function SoundtrackModal({ tl, editing, onClose, onSaved }: {
         fileId = (await lib.upload(variantId, file, { caption: "soundtrack" })).file_id;
       }
       const track: Music = { ...t, file_id: fileId };
-      const music = editing === null ? [...tl.doc.music, track] : tl.doc.music.map((m, i) => (i === editing ? { ...m, ...track } : m));
+      // Replace: the new song takes the first track's place (a second, layered track stays as it is).
+      const music = editing !== null ? tl.doc.music.map((m, i) => (i === editing ? { ...m, ...track } : m))
+        : existing && replace ? [track, ...tl.doc.music.slice(1)]
+        : [...tl.doc.music, track];
       await api.patchEdit(tl.project_id, {
         music, settings: { ...tl.doc.settings, mute_shots: muteShots },
-        note: editing === null ? "added a soundtrack" : "changed the soundtrack",
+        note: editing !== null ? "changed the soundtrack" : existing && replace ? "replaced the soundtrack" : "added a soundtrack",
       });
       onSaved();
       onClose();
@@ -105,11 +111,20 @@ export function SoundtrackModal({ tl, editing, onClose, onSaved }: {
     <div ref={backdrop} className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
       <div ref={card} className="modal glass settings-modal soundtrack" role="dialog" aria-modal="true" aria-labelledby="st-title">
         <header className="sm-head">
-          <h3 id="st-title">🎵 {editing === null ? "Add soundtrack" : "Soundtrack"}</h3>
+          <h3 id="st-title">🎵 {editing !== null ? "Soundtrack" : existing ? "New soundtrack" : "Add soundtrack"}</h3>
           <button type="button" className="ghost small" aria-label="Close" onClick={close} disabled={busy}>✕</button>
         </header>
         <div className="sm-body">
-          {full && <p className="warn small">The film already has 2 music tracks: remove one first.</p>}
+          {existing > 0 && (
+            <div className="st-replace" role="radiogroup" aria-label="The film's current soundtrack">
+              <label className={`np-option ${replace ? "on" : ""}`}><input type="radio" checked={replace} onChange={() => setReplace(true)} />
+                <span><strong>Replace the current soundtrack</strong>
+                  <span className="block muted small">For a new version of the song: only the new one plays.</span></span></label>
+              <label className={`np-option ${!replace ? "on" : ""}`}><input type="radio" checked={!replace} onChange={() => setReplace(false)} />
+                <span><strong>Add as a second track</strong>
+                  <span className="block muted small">Both play together, e.g. music plus an ambience bed.</span></span></label>
+            </div>)}
+          {full && <p className="warn small">The film already has 2 music tracks: replace one, or remove one first.</p>}
           <div className="seg-toggle" role="radiogroup" aria-label="Soundtrack from">
             <button type="button" className={`ghost small ${source === "upload" ? "on" : ""}`} aria-pressed={source === "upload"}
               onClick={() => setSource("upload")} disabled={busy}>Upload a file</button>
@@ -170,7 +185,7 @@ export function SoundtrackModal({ tl, editing, onClose, onSaved }: {
             <span className="grow" />
             <button type="button" className="ghost" onClick={close} disabled={busy}>Cancel</button>
             <button type="button" className="primary" disabled={!ready || busy || full} onClick={confirm}>
-              {busy ? (sending ? "Uploading…" : "Saving…") : editing === null ? "Add soundtrack" : "Save"}</button>
+              {busy ? (sending ? "Uploading…" : "Saving…") : editing !== null ? "Save" : existing && replace ? "Replace soundtrack" : "Add soundtrack"}</button>
           </div>
         </footer>
       </div>
