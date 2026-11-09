@@ -151,10 +151,13 @@ def build_command(m: dict, media_dir: Path, library_root: Path, workdir: Path, o
         mix_in.append("sc0")
         dj = 1
         for j, mu in enumerate(m["music"]):
-            args += ["-i", str(library_root / mu["rel_path"])]
+            loop = bool(mu.get("loop"))
+            args += [*(["-stream_loop", "-1"] if loop else []), "-i", str(library_root / mu["rel_path"])]
             i = n_in
             n_in += 1
-            avail = max(0.0, min(mu["duration_s"] - mu["offset_s"], total - mu["start_s"]))
+            # A looped file repeats to the end of the film (trimmed there); otherwise it stops when it ends.
+            left = total - mu["start_s"] if loop else mu["duration_s"] - mu["offset_s"]
+            avail = max(0.0, min(left, total - mu["start_s"]))
             fo = min(mu["fade_out_s"], avail)
             chain = (f"[{i}:a]atrim=start={mu['offset_s']:.6f}:duration={avail:.6f},asetpts=PTS-STARTPTS,aresample=48000,"
                      f"aformat=sample_fmts=fltp:channel_layouts=stereo,volume={mu['gain_db']}dB")

@@ -19,7 +19,8 @@ from .media import _run, sha256_file
 KINDS = ("character", "location", "prop", "style", "sound")
 IMAGE_TYPES = {"png": "image/png", "mjpeg": "image/jpeg", "webp": "image/webp"}
 AUDIO_TYPES = {"pcm_s16le": "audio/wav", "pcm_s24le": "audio/wav", "mp3": "audio/mpeg", "flac": "audio/flac"}
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_UPLOAD_BYTES = 150 * 1024 * 1024  # any upload: room for a soundtrack as WAV (about 10 MB a minute)
+MAX_IMAGE_BYTES = 25 * 1024 * 1024
 MAX_SIDE, MAX_PIXELS = 8192, 40_000_000  # a small file can still decode to a huge image
 MAX_REFS_PER_SHOT = 8
 
@@ -76,6 +77,8 @@ class Library:
     async def store_file(self, src: Path, source: str) -> dict:
         """Add a file to the library (or return the existing one with the same content)."""
         meta = await inspect_file(src)
+        if meta["kind"] == "image" and src.stat().st_size > MAX_IMAGE_BYTES:
+            raise LibraryError(f"images must be at most {MAX_IMAGE_BYTES // (1024 * 1024)} MB")
         digest = await asyncio.to_thread(sha256_file, src)
         existing = await self.db.fetchone("SELECT * FROM library_files WHERE sha256 = ?", (digest,))
         if existing:

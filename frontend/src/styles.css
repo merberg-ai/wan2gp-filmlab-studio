@@ -1149,3 +1149,20 @@ progress:not([value])::after { content: ""; position: absolute; inset: 0; width:
 .ea-num { color: var(--muted); min-width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; }
 .ea-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ea-why { padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); text-transform: capitalize; }
+
+/* 🎵 Add soundtrack (Soundtrack.tsx) */
+.soundtrack { width: min(560px, 100%); }
+.soundtrack .sm-body { display: grid; gap: 10px; }
+.seg-toggle { display: flex; gap: 6px; }
+.seg-toggle .on { border-color: rgba(217, 164, 65, 0.5); background: rgba(217, 164, 65, 0.08); }
+.st-drop { display: block; padding: 18px 14px; text-align: center; border: 1px dashed var(--line); border-radius: 12px;
+  cursor: pointer; }
+.st-drop:hover, .st-drop.has { border-color: rgba(217, 164, 65, 0.5); background: rgba(217, 164, 65, 0.05); }
+.st-lib .row.wrap { flex-wrap: wrap; gap: 6px; }
+.st-files { display: grid; gap: 2px; margin-top: 6px; }
+.st-player { width: 100%; }
+.st-volume { display: grid; gap: 4px; }
+.st-volume input[type="range"] { width: 100%; }
+.st-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.st-grid label { display: grid; gap: 3px; }
+.st-grid input { width: 100%; }

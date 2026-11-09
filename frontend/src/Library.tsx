@@ -335,7 +335,7 @@ function VariantCard({ variant, assetName, onlyLook, caps, allImages, act, setNo
         {!locked && (
           <button className={`dropzone ${drag ? "over" : ""}`} onClick={() => input.current?.click()} disabled={busy}>
             {busy ? "Uploading…" : "Drop images here or click to upload"}
-            <span className="block small muted">PNG, JPEG, WebP (or WAV/MP3/FLAC voice) · up to 25 MB each</span>
+            <span className="block small muted">PNG, JPEG, WebP (or WAV/MP3/FLAC voice) · images up to 25 MB, audio up to 150 MB</span>
           </button>
         )}
         <input ref={input} type="file" hidden multiple accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/flac"

@@ -193,6 +193,57 @@ def test_final_export_with_everything(make_harness, music):
     assert "The%20Dead%20March%20-%20Delivery%201.mp4" in r.headers["content-disposition"]
 
 
+def tone(tmp_path, seconds, name="tone.wav", stereo=False):
+    p = tmp_path / name
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"sine=frequency=330:duration={seconds}",
+                    "-ar", "48000", *(["-ac", "2"] if stereo else []), str(p)], check=True)
+    return p.read_bytes()
+
+
+def mean_db(path, start, length):
+    out = subprocess.run(["ffmpeg", "-nostats", "-ss", str(start), "-t", str(length), "-i", str(path),
+                          "-af", "volumedetect", "-f", "null", "-"], capture_output=True, text=True).stderr
+    return float(re.search(r"mean_volume: (-?[\d.]+) dB", out).group(1))
+
+
+def test_soundtrack_only_and_looped(make_harness, tmp_path):
+    h = make_harness().login()
+    pid = small_project(h)
+    rendered_shot(h, pid, "A"), rendered_shot(h, pid, "B")
+    snd = asset(h, "sound", "Theme")
+    up = upload(h, default_variant(snd), tone(tmp_path, 0.5), caption="soundtrack")
+    r = patch(h, f"/api/projects/{pid}/edit", {
+        "music": [{"file_id": up["file_id"], "start_s": 0, "gain_db": 0, "fade_in_s": 0, "fade_out_s": 0, "loop": True}],
+        "settings": {"mute_shots": True, "loudness": False}, "note": "added a soundtrack"})
+    assert r.status_code == 200, r.text
+    e = r.json()
+    assert e["doc"]["music"][0]["loop"] is True and e["doc"]["settings"]["mute_shots"] is True
+    assert all(s["mute"] for s in e["segments"] if s["kind"] == "clip")  # soundtrack only
+    total = e["total_s"]
+    assert total >= 1.5  # much longer than the 0.5 s song: the loop has to fill it
+    out = export(h, pid)
+    assert out["status"] == "done", out.get("error")
+    film = file_of(h, out)
+    assert mean_db(film, total - 0.6, 0.5) > -40  # still playing at the end: it looped
+    # Played once, the song stops after 0.5 s and the muted shots leave silence.
+    patch(h, f"/api/projects/{pid}/edit", {"music": [e["doc"]["music"][0] | {"loop": False}]})
+    once = export(h, pid)
+    assert once["status"] == "done", once.get("error")
+    assert mean_db(file_of(h, once), total - 0.6, 0.5) < -80
+    # Old edits without the new fields read as before.
+    assert patch(h, f"/api/projects/{pid}/edit", {"settings": {"mute_shots": False}}).json()["segments"][0]["mute"] is False
+
+
+def test_a_soundtrack_can_be_larger_than_an_image(make_harness, tmp_path):
+    h = make_harness().login()
+    snd = asset(h, "sound", "Long song")
+    data = tone(tmp_path, 170, stereo=True)  # about 33 MB as WAV, over the 25 MB image limit
+    assert len(data) > 25 * 1024 * 1024
+    r = h.c.post(f"/api/library/variants/{default_variant(snd)}/files", content=data,
+                 headers={"x-csrf-token": h.csrf, "content-type": "application/octet-stream"})
+    assert r.status_code == 201, r.text
+
+
 def test_untrimmed_cuts_are_joined_without_reencoding(make_harness):
     h = make_harness().login()
     pid = small_project(h)

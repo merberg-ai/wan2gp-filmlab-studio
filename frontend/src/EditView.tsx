@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ask } from "./Dialog";
 import { api, type ExportRow, type Music, type ProjectDetail, type Segment, type TextItem, type Timeline } from "./api";
 import type { Listener } from "./App";
-import { type Asset, type AssetDetail, lib } from "./library-api";
+import { lib } from "./library-api";
+import { SoundtrackModal } from "./Soundtrack";
 
 type Act = (fn: () => Promise<unknown>) => Promise<void>;
 type Subscribe = (l: Listener, r: () => void) => () => void;
@@ -16,6 +17,8 @@ export function EditView({ project, subscribe }: { project: ProjectDetail; subsc
   const [exports, setExports] = useState<ExportRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [playhead, setPlayhead] = useState(0);
+  /** The soundtrack modal: undefined closed, null adding one, a number changing that music track. */
+  const [soundtrack, setSoundtrack] = useState<number | null | undefined>(undefined);
   const seekRef = useRef<(t: number) => void>(() => undefined);
   const timer = useRef<number>();
 
@@ -66,7 +69,10 @@ export function EditView({ project, subscribe }: { project: ProjectDetail; subsc
           </div>
         )}
         <div className="panel-head"><h2>Timeline</h2>
-          <span className="muted small">order and transitions come from the storyboard</span></div>
+          <span className="muted small grow">order and transitions come from the storyboard</span>
+          {tl.doc.music.length < 2 && (
+            <button className="ghost small" title="Play a song (MP3, WAV or FLAC) under the film"
+              onClick={() => setSoundtrack(null)}>🎵 Add soundtrack</button>)}</div>
         <ol className="timeline">
           {tl.segments.map((s, i) => s.kind === "clip"
             ? <ClipRow key={s.shot_id} seg={s} tl={tl} project={project} playhead={playhead} onSeek={(t) => seekRef.current(t)} patch={patch} act={act} />
@@ -92,7 +98,8 @@ export function EditView({ project, subscribe }: { project: ProjectDetail; subsc
           </div>
         )}
         <TextsPanel tl={tl} project={project} playhead={playhead} patch={patch} />
-        <MusicPanel tl={tl} patch={patch} />
+        <MusicPanel tl={tl} patch={patch} open={setSoundtrack} />
+        {soundtrack !== undefined && <SoundtrackModal tl={tl} editing={soundtrack} onClose={() => setSoundtrack(undefined)} onSaved={load} />}
         <details className="card">
           <summary><strong>Settings and history</strong></summary>
           <label className="small row check"><input type="checkbox" className="switch" checked={tl.doc.settings.loudness}
@@ -213,17 +220,16 @@ function TextsPanel({ tl, project, playhead, patch }: {
   );
 }
 
-function MusicPanel({ tl, patch }: { tl: Timeline; patch: (p: Parameters<typeof api.patchEdit>[1]) => Promise<void> }) {
-  const [picking, setPicking] = useState(false);
-  const [sounds, setSounds] = useState<Asset[]>([]);
-  const [open, setOpen] = useState<AssetDetail | null>(null);
+function MusicPanel({ tl, patch, open }: {
+  tl: Timeline; patch: (p: Parameters<typeof api.patchEdit>[1]) => Promise<void>; open: (i: number | null) => void;
+}) {
   const music = tl.doc.music;
-  useEffect(() => { if (picking) lib.search("", "sound").then(setSounds).catch(() => setSounds([])); }, [picking]);
+  const muted = !!tl.doc.settings.mute_shots;
   const save = (next: Music[], note: string) => patch({ music: next, note });
   const change = (i: number, c: Partial<Music>, note: string) => save(music.map((m, j) => (j === i ? { ...m, ...c } : m)), note);
   return (
     <details className="card" open={music.length > 0}>
-      <summary><strong>Music</strong> <span className="muted small">· {music.length} of 2 · from the Library (Sound)</span></summary>
+      <summary><strong>Soundtrack and music</strong> <span className="muted small">· {music.length} of 2{muted ? " · shots muted" : ""}</span></summary>
       {music.map((m, i) => (
         <div key={m.id ?? i} className="music">
           <img className="waveform" src={`/api/library/files/${m.file_id}/waveform`} alt="" loading="lazy" />
@@ -234,26 +240,20 @@ function MusicPanel({ tl, patch }: { tl: Timeline; patch: (p: Parameters<typeof 
             <label>Fade in<NumberField value={m.fade_in_s} min={0} max={30} step={0.5} onCommit={(v) => change(i, { fade_in_s: v }, "music fade in")} /></label>
             <label>Fade out<NumberField value={m.fade_out_s} min={0} max={30} step={0.5} onCommit={(v) => change(i, { fade_out_s: v }, "music fade out")} /></label>
             <label className="check"><input type="checkbox" checked={m.duck} onChange={(e) => change(i, { duck: e.target.checked }, "music ducking")} /> Duck under dialogue</label>
+            <label className="check"><input type="checkbox" checked={!!m.loop} onChange={(e) => change(i, { loop: e.target.checked }, e.target.checked ? "music loops" : "music plays once")} /> Loop</label>
             <button className="ghost small" title="Play it under the whole film: from the start, a gentle fade in and a longer fade out at the end"
               onClick={() => change(i, { start_s: 0, offset_s: 0, fade_in_s: 1, fade_out_s: 3 }, "music under the whole film")}>Whole film</button>
+            <button className="ghost small" onClick={() => open(i)}>Edit…</button>
             <button className="ghost small" onClick={() => save(music.filter((_, j) => j !== i), "removed music")}>Remove</button>
           </div>
         </div>
       ))}
-      {music.length < 2 && !picking && <button className="ghost small" onClick={() => setPicking(true)}>+ Music from the Library</button>}
-      {picking && (
-        <div className="picker small">
-          {sounds.length === 0 && <p className="muted">No sounds yet: add a <a href="#/library">Library</a> item of kind “Sound” and upload WAV, MP3 or FLAC.</p>}
-          <div className="row">{sounds.map((a) => <button key={a.id} className={`ghost small ${open?.id === a.id ? "on" : ""}`} onClick={() => lib.asset(a.id).then(setOpen)}>{a.name}</button>)}</div>
-          {open?.variants.flatMap((v) => v.files.filter((f) => f.kind === "audio").map((f) => (
-            <button key={f.entry_id} className="ghost small block" onClick={() => {
-              setPicking(false);
-              save([...music, { file_id: f.file_id, start_s: 0, offset_s: 0, gain_db: -9, fade_in_s: 0.5, fade_out_s: 1.5, duck: true }], `added music ${open.name}`);
-            }}>{open.name} · {f.caption || "audio"} · {f.duration_s?.toFixed(1)} s</button>
-          )))}
-          <button className="ghost small" onClick={() => setPicking(false)}>Cancel</button>
-        </div>
-      )}
+      <div className="row small">
+        {music.length < 2 && <button className="ghost small" onClick={() => open(null)}>🎵 Add soundtrack</button>}
+        <label className="check" title="The soundtrack alone: every shot's own sound (dialogue, effects) is muted, shots added later too">
+          <input type="checkbox" checked={muted} onChange={(e) => patch({ settings: { ...tl.doc.settings, mute_shots: e.target.checked },
+            note: e.target.checked ? "soundtrack only: shots muted" : "shots' own sound back" })} /> Soundtrack only (mute the shots)</label>
+      </div>
     </details>
   );
 }
@@ -292,7 +292,9 @@ function Preview({ tl, onTime, seekRef }: { tl: Timeline; onTime: (t: number) =>
     tl.doc.music.forEach((m, i) => {
       const a = audios.current[i];
       if (!a) return;
-      const local = x - m.start_s + m.offset_s;
+      let local = x - m.start_s + m.offset_s;
+      // Looped like the export: the file repeats from its beginning once it ends.
+      if (m.loop && a.duration) local %= a.duration;
       if (x < m.start_s || local >= (a.duration || Infinity)) { if (!a.paused) a.pause(); return; }
       if (Math.abs(a.currentTime - local) > 0.25) a.currentTime = local;
       a.volume = Math.min(1, Math.pow(10, m.gain_db / 20));

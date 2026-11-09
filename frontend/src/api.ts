@@ -35,14 +35,14 @@ export interface Segment {
   in?: number; out?: number; gain_db?: number; mute?: boolean;
   id?: string; text?: string; text_position?: string;
 }
-export interface Music { id?: string; file_id: string; start_s: number; offset_s: number; gain_db: number; fade_in_s: number; fade_out_s: number; duck: boolean }
+export interface Music { id?: string; file_id: string; start_s: number; offset_s: number; gain_db: number; fade_in_s: number; fade_out_s: number; duck: boolean; loop?: boolean }
 export interface TextItem {
   id?: string; kind: "title" | "caption"; text: string; position?: string;
   at?: string; duration_s?: number; start_s?: number; end_s?: number;
 }
 export interface EditDoc {
   clips: Record<string, { in?: number; out?: number; skip?: boolean; gain_db?: number; mute?: boolean; transition_s?: number }>;
-  music: Music[]; texts: TextItem[]; settings: { loudness: boolean; transition_s: number };
+  music: Music[]; texts: TextItem[]; settings: { loudness: boolean; transition_s: number; mute_shots?: boolean };
 }
 export interface Timeline {
   project_id: string; fps: number; width: number; height: number; segments: Segment[]; total_s: number; doc: EditDoc;

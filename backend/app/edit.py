@@ -16,7 +16,8 @@ VERDICTS = ("good", "maybe", "reject")
 MAX_MUSIC, MAX_TEXTS = 2, 40
 CLIP_FIELDS = {"in", "out", "skip", "gain_db", "mute", "transition_s"}
 POSITIONS = ("bottom", "center", "top")
-DEFAULT_DOC = {"clips": {}, "music": [], "texts": [], "settings": {"loudness": True, "transition_s": 0.5}}
+DEFAULT_DOC = {"clips": {}, "music": [], "texts": [], "settings": {"loudness": True, "transition_s": 0.5,
+                                                                    "mute_shots": False}}
 
 
 class EditError(ValueError):
@@ -152,7 +153,9 @@ class Edit:
                                  "gain_db": _num(m.get("gain_db"), -40, 12, "gain_db", -6.0),
                                  "fade_in_s": _num(m.get("fade_in_s"), 0, 30, "fade_in_s", 0.0),
                                  "fade_out_s": _num(m.get("fade_out_s"), 0, 30, "fade_out_s", 1.0),
-                                 "duck": bool(m.get("duck", True))})
+                                 "duck": bool(m.get("duck", True)),
+                                 # Repeat the file to the end of the film (a short soundtrack under a longer film).
+                                 "loop": bool(m.get("loop", False))})
         texts = doc.get("texts") or []
         if len(texts) > MAX_TEXTS:
             raise EditError(f"at most {MAX_TEXTS} titles and captions")
@@ -175,7 +178,9 @@ class Edit:
                 raise EditError(f"texts[{i}].kind must be title or caption")
         s = doc.get("settings") or {}
         out["settings"] = {"loudness": bool(s.get("loudness", True)),
-                           "transition_s": _num(s.get("transition_s"), 0, 3, "transition_s", 0.5)}
+                           "transition_s": _num(s.get("transition_s"), 0, 3, "transition_s", 0.5),
+                           # The soundtrack alone: every shot's own sound is muted (shots added later too).
+                           "mute_shots": bool(s.get("mute_shots", False))}
         return out
 
     async def update(self, project_id: str, patch: dict, actor: str, note: str = "") -> dict:
@@ -228,7 +233,8 @@ class Edit:
         segments, issues, previews = [], [], []
         # A music video: the song plays under the whole film, so every shot's own sound is muted (a cut never
         # restarts the music).
-        song_only = bool(project.get("music_mode") and project.get("song_file_id"))
+        song_only = bool(project.get("music_mode") and project.get("song_file_id")) \
+            or bool(doc["settings"].get("mute_shots"))  # or the owner chose "soundtrack only"
 
         def titles_at(key):
             for t in texts:
