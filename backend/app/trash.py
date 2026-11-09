@@ -229,7 +229,8 @@ class Trash:
                 c.execute("DELETE FROM redo_proposals WHERE project_id = ?", (row_id,))
                 c.execute("DELETE FROM director_runs WHERE project_id = ?", (row_id,))
                 c.execute("DELETE FROM scenes WHERE project_id = ?", (row_id,))
-                for t in ("exports", "edit_suggestions", "edit_revisions", "edits"):
+                for t in ("exports", "edit_suggestions", "edit_revisions", "edits", "storybook_exports",
+                          "storybook_revisions", "storybooks"):
                     c.execute(f"DELETE FROM {t} WHERE project_id = ?", (row_id,))
                 c.execute("DELETE FROM projects WHERE id = ?", (row_id,))
             await self.db.transaction(write)

@@ -193,6 +193,14 @@ TOOLS = [
             "seconds": {"type": "number", "description": "Length in seconds; 0 for a cut; at most the cut's max_s"},
             "reason": {"type": "string", "description": "One short line for the owner"}}}},
          "summary": {"type": "string", "description": "Your approach in a sentence or two"}}, ("transitions",)),
+    _fn("propose_story", "Propose the Storybook's text when the owner asks you to write the story: one entry per shot "
+                         "(a page's narration, or a comic panel's caption; empty for none). Only proposes: the owner "
+                         "edits and accepts it.",
+        {"pages": {"type": "array", "items": {"type": "object", "properties": {
+            "shot_id": {"type": "string"}, "text": {"type": "string"}}}},
+         "title": {"type": "string", "description": "A title for the cover, if better than the current one"},
+         "subtitle": {"type": "string", "description": "A short subtitle or tagline for the cover"},
+         "summary": {"type": "string", "description": "How you told it, in a sentence"}}, ("pages",)),
 ]
 TOOL_NAMES = {t["function"]["name"] for t in TOOLS}
 ARG_NAMES = {t["function"]["name"]: set(t["function"]["parameters"]["properties"]) for t in TOOLS}
@@ -592,6 +600,9 @@ class DirectorTools:
         where = ("FilmLab renders it in the owner's redo run, within its limits, and inspects the new take."
                  if res["run_id"] else "Waiting for the owner to accept it in the cockpit. Nothing is rendering.")
         return res | {"message": where}
+
+    async def propose_story(self, project_id, pages, title="", subtitle="", summary=""):
+        return await self.studio.story_writer.propose(project_id, pages, title, subtitle, summary)
 
     async def propose_transitions(self, project_id, transitions, summary=""):
         return await self.studio.transitions.propose(project_id, transitions, summary)

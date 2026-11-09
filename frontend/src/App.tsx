@@ -8,6 +8,7 @@ import { Login } from "./Login";
 import { SelfTestPage } from "./SelfTest";
 import { SettingsPage } from "./Settings";
 import { ContactSheet, SystemPage } from "./System";
+import { StorybookPage } from "./Storybook";
 import { GpuMeters, type GpuSample } from "./GpuMeters";
 import { TrashPage } from "./Trash";
 import { ProjectView } from "./ProjectView";
@@ -32,6 +33,8 @@ function useRoute() {
   }, []);
   const sheet = hash.match(/^#\/p\/([0-9a-f]+)\/sheet/);
   if (sheet) return { page: "sheet" as const, id: sheet[1] };
+  const sb = hash.match(/^#\/p\/([0-9a-f]+)\/storybook/);
+  if (sb) return { page: "storybook" as const, id: sb[1] };
   const m = hash.match(/^#\/p\/([0-9a-f]+)(\/edit)?/);
   if (m) return { page: "project" as const, id: m[1], tab: m[2] ? "edit" as const : "storyboard" as const };
   // the Create page: #/create[/<kind>], #/create/c/<creation id> (old Library links to a draft land there too)
@@ -143,6 +146,7 @@ function Studio({ onLogout }: { onLogout: () => void }) {
               <ConsoleView subscribe={subscribe} projectId={null} full /></main>)
           : route.page === "create" ? <CreatePage subscribe={subscribe} kind={route.kind} creationId={route.creation} />
           : route.page === "sheet" ? <ContactSheet projectId={route.id} />
+          : route.page === "storybook" ? <StorybookPage key={route.id} projectId={route.id} subscribe={subscribe} />
             : <Projects subscribe={subscribe} />}
       <footer className="footer muted">Rendering by <a href="https://github.com/deepbeepmeep/Wan2GP" target="_blank" rel="noopener noreferrer">WanGP</a> via its MCP interface · <a href="#/about">About FilmLab Studio</a></footer>
     </div>

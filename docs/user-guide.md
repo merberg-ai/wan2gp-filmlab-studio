@@ -237,9 +237,26 @@ The **Edit & export** tab assembles the film from each shot's chosen take, in st
   - a **Final**, with loudness normalised to −14 LUFS and optional burned-in captions.
 
   Exports are MP4 (H.264/AAC) with an SRT caption file and a manifest of every source used.
-- The **Contact sheet** shows every shot's frames and inspection at a glance.
 
 **Music** comes from the Library (kind *Sound*), up to two tracks placed on the film's timeline (start, where in the file, level, fades, ducking under dialogue). **Whole film** puts a track under the entire film.
+
+## Storybook
+
+The **Storybook** tab turns the film into an illustrated book, using a frame from each shot's take.
+
+- **📖 Picture book** puts one picture on each page, with narration and the characters' lines below it. **💬 Comic** puts 2–6 panels on each page, with caption boxes and speech bubbles for the dialogue. With **Chapters per scene** on, each scene starts a new page under its title.
+- **Click a page or panel** to edit it:
+  - choose a different moment of the take, or crop the picture;
+  - write the narration or caption;
+  - show or hide the dialogue;
+  - start a new comic page there, or leave the shot out.
+- **Click the cover** to set the title, subtitle, author and cover picture.
+- A page keeps the frame you chose. When you render a newer take of its shot, the page shows **new take**, and **Use the new take** switches to it.
+- **✨ Write the story:** the director writes the narration for every page (or a caption for every comic panel), plus a title and subtitle. You can watch it work, then edit the text. **Accept** saves it, and **Cancel** discards it. You can add a note such as "for children, bedtime-story voice".
+- **📕 Export book:** the server draws every page (A4, 150 dpi) and produces a **PDF**, each page as a **PNG** (zipped) and a **CBZ** for comic-reader apps.
+- **History** restores the book as it was after any earlier change.
+
+The old contact sheet is still at `#/p/<project>/sheet`.
 
 ## Settings
 

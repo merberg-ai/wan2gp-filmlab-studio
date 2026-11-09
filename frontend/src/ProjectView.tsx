@@ -124,7 +124,7 @@ export function ProjectView({ projectId, tab, subscribe }: { projectId: string; 
         <nav className="tabs" aria-label="Project views">
           <a href={`#/p/${project.id}`} className={tab === "storyboard" ? "on" : ""}>Storyboard</a>
           <a href={`#/p/${project.id}/edit`} className={tab === "edit" ? "on" : ""}>Edit &amp; export</a>
-          <a href={`#/p/${project.id}/sheet`}>Contact sheet</a>
+          <a href={`#/p/${project.id}/storybook`}>Storybook</a>
         </nav>
         {project.logline && <p className="muted logline" title={project.logline}>{project.logline}</p>}
         <ProjectSettings project={project} act={act} />

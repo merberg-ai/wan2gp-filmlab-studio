@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import (VERSION, auth, autonomy_api, console_api, creator_api, edit_api, host_api, library_api, music_api, shots,
-               storyboard_api, system_api)
+               storybook_api, storyboard_api, system_api)
 from . import templates as project_templates
 from .backups import Backups
 from .gpu_stats import GpuMonitor
@@ -31,6 +31,8 @@ from .director.settings import DirectorSettings
 from .director.enhance import can_enhance
 from .enhance_all import EnhanceAll, EnhanceError, enhance_request
 from .transitions import TransitionPlanner
+from .storybook import Storybook
+from .storybook_writer import StoryWriter
 from .director.gateway import GatewayClient
 from .director.tools import DirectorTools
 from .events import EventBus
@@ -147,6 +149,8 @@ class Studio:
                              ollama_transport=vision_transport)
         self.gateway = gateway or GatewayClient(settings.gateway_url, settings.gateway_token, settings.director_agent)
         self.transitions = TransitionPlanner(self)
+        self.storybook = Storybook(self)
+        self.story_writer = StoryWriter(self)
         self.tools = DirectorTools(self)
         self.director_settings = DirectorSettings(self.db, settings, self.gateway, ollama_transport=vision_transport)
         self.chat = DirectorChat(self.db, self.bus, self.gateway, self.tools, settings.director_max_tool_rounds,
@@ -194,6 +198,7 @@ class Studio:
         self.console.start()
         self._connector = asyncio.create_task(self._connect_wangp())
         await self.exporter.resume_all()  # exports only need ffmpeg, not WanGP
+        await self.storybook.resume_all()
         self.backups.start_daily()
         self.gpu.start()
 
@@ -327,6 +332,8 @@ class Studio:
         await self.inspector.shutdown()
         await self.enhance_all.shutdown()
         await self.transitions.shutdown()
+        await self.storybook.shutdown()
+        await self.story_writer.shutdown()
         await self.chat.shutdown()
         await self.renders.shutdown()
         await self.images.shutdown()
@@ -439,6 +446,7 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
     app.include_router(creator_api.router)
     app.include_router(storyboard_api.router)
     app.include_router(edit_api.router)
+    app.include_router(storybook_api.router)
     app.include_router(autonomy_api.router)
     app.include_router(system_api.router)
     app.include_router(music_api.router)

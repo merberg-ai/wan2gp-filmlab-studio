@@ -32,7 +32,7 @@ EOF
 
 echo "installing packages (this takes a few minutes the first time)"
 apt-get update -q
-apt-get install -y -q ca-certificates curl gnupg git jq sqlite3 ffmpeg openssl python3 python3-venv >/dev/null
+apt-get install -y -q ca-certificates curl gnupg git jq sqlite3 ffmpeg openssl python3 python3-venv fonts-dejavu-core >/dev/null  # fonts: the Storybook's pages
 
 if ! node --version 2>/dev/null | grep -q '^v24\.'; then
   echo "installing Node.js 24 (NodeSource)"

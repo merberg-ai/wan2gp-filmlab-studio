@@ -1,3 +1,4 @@
+import type { Crop } from "./library-api";
 // Typed client for the FilmLab backend. Mutations carry the CSRF token.
 
 import type { Asset, Issue, ShotRef } from "./library-api";
@@ -438,6 +439,20 @@ export const api = {
     request<{ batches: number; jobs: number }>("POST", `/api/projects/${projectId}/renders/cancel-all`),
   chat: (pid: string) => request<ChatMessage[]>("GET", `/api/projects/${pid}/chat`),
   sendChat: (pid: string, text: string) => request<{ turn_id: string }>("POST", `/api/projects/${pid}/chat`, { text }),
+  storybook: (pid: string) => request<Storybook>("GET", `/api/projects/${pid}/storybook`),
+  patchStorybook: (pid: string, patch: Partial<Omit<BookDoc, "panels" | "cover">> & {
+    cover?: Partial<BookDoc["cover"]>; panels?: Record<string, Partial<BookPanelDoc>>; note?: string }) =>
+    request<Storybook>("PATCH", `/api/projects/${pid}/storybook`, patch),
+  restoreStorybook: (pid: string, rid: string) => request<Storybook>("POST", `/api/projects/${pid}/storybook/revisions/${rid}/restore`),
+  bookFrameUrl: (takeId: string, t: number, crop?: Crop | null, size: "small" | "full" = "small") =>
+    `/api/storybook/frame/${takeId}?t=${t.toFixed(3)}${crop ? `&crop=${[crop.x, crop.y, crop.w, crop.h].map((v) => v.toFixed(4)).join(",")}` : ""}${size === "full" ? "&size=full" : ""}`,
+  writeStory: (pid: string, note: string) => request<{ plan: StoryPlan }>("POST", `/api/projects/${pid}/storybook/write`, { note }),
+  discardStory: (pid: string) => request<{ discarded: boolean }>("DELETE", `/api/projects/${pid}/storybook/write`),
+  applyStory: (pid: string, texts: Record<string, string>, title?: string, subtitle?: string) =>
+    request<Storybook>("POST", `/api/projects/${pid}/storybook/write/apply`, { texts, title, subtitle }),
+  exportStorybook: (pid: string) => request<BookExport>("POST", `/api/projects/${pid}/storybook/exports`),
+  deleteBookExport: (id: string) => request("DELETE", `/api/storybook-exports/${id}`),
+  bookFileUrl: (id: string, what: string, download = false) => `/api/storybook-exports/${id}/file/${what}${download ? "?download=1" : ""}`,
   transitionCuts: (pid: string) => request<{ cuts: TransitionCut[] }>("GET", `/api/projects/${pid}/transitions/cuts`),
   transitionPlan: (pid: string) => request<{ plan: TransitionPlan | null }>("GET", `/api/projects/${pid}/transitions/plan`),
   planTransitions: (pid: string, scope: "scenes" | "all", note: string) =>
@@ -449,6 +464,33 @@ export const api = {
 };
 
 export const seconds = (frames: number) => ((frames - 1) / 24).toFixed(2).replace(/\.?0+$/, "");
+
+/** The Storybook (backend/app/storybook.py): the film as a picture book or comic. */
+export interface BookLine { speaker: string; text: string; delivery: string }
+export interface BookPanelDoc { take_id: string | null; t: number | null; crop: Crop | null; narration: string; dialogue: boolean; skip: boolean; break_before: boolean }
+export interface BookPanel {
+  shot_id: string; position: number; title: string; idea: string; scene_id: string | null; scene: string | null; scene_mood: string | null;
+  take_id: string | null; media_id: string | null; duration_s: number; fps: number; width: number | null; height: number | null;
+  t: number; crop: Crop | null; narration: string; lines: BookLine[]; dialogue: boolean; skip: boolean; break_before: boolean;
+  new_take_id: string | null;
+}
+export interface BookDoc {
+  layout: "picture" | "comic"; per_page: number; chapters: boolean;
+  cover: { title: string; subtitle: string; author: string; shot_id: string | null; crop: Crop | null };
+  panels: Record<string, BookPanelDoc>;
+}
+export interface BookExport { id: string; status: "queued" | "running" | "done" | "failed"; layout: string; pages: number; bytes: number;
+  error: string | null; created_at: string; finished_at: string | null }
+export interface StoryPlan {
+  status: "thinking" | "ready" | "failed"; turn_id: string | null; title: string; subtitle: string; summary: string; error: string | null;
+  layout: string; items: { shot_id: string; position: number; title: string; take_id: string | null; t: number; crop: Crop | null;
+    current: string; text: string; lines: BookLine[] }[];
+}
+export interface Storybook {
+  project_id: string; doc: BookDoc; panels: BookPanel[]; pages: { chapter: string | null; shot_ids: string[] }[];
+  portrait: boolean; logline: string; revisions: { id: string; actor: string; note: string; created_at: string }[];
+  writer: StoryPlan | null; exports: BookExport[];
+}
 
 /** Plan transitions (backend/app/transitions.py): the cuts of the edit and the director's proposal for them. */
 export interface TransitionSide { position: number; title: string; idea: string; seconds: number; scene: string | null; scene_mood: string | null }

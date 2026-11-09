@@ -8,15 +8,10 @@ import { dialogOpen, trapTab, useModalFrame } from "./Dialog";
 import { api, type TransitionCut, type TransitionPlan, type TransitionProposal, transitionLabel } from "./api";
 import type { Listener } from "./App";
 import { TransitionSelect } from "./TransitionSelect";
+import { DirectorLog, useDirectorStream } from "./DirectorStream";
 
 type Subscribe = (l: Listener, r: () => void) => () => void;
 type Row = TransitionProposal;
-type Step = { kind: "text" | "tool" | "note" | "error"; text: string };
-
-const TOOL_LABEL: Record<string, string> = {
-  get_edit: "Read the edit", get_project: "Read the storyboard", review_takes: "Looked at the takes",
-  propose_transitions: "Proposed the transitions",
-};
 
 export function TransitionPlannerModal({ projectId, subscribe, onClose, onApplied }: {
   projectId: string; subscribe: Subscribe; onClose: () => void; onApplied: () => void;
@@ -25,12 +20,10 @@ export function TransitionPlannerModal({ projectId, subscribe, onClose, onApplie
   const [cuts, setCuts] = useState<TransitionCut[] | null>(null);
   const [scope, setScope] = useState<"scenes" | "all">("scenes");
   const [note, setNote] = useState("");
-  const [steps, setSteps] = useState<Step[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const turn = useRef<string | null>(null);
-  const log = useRef<HTMLDivElement>(null);
 
   const backdrop = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
@@ -59,25 +52,13 @@ export function TransitionPlannerModal({ projectId, subscribe, onClose, onApplie
     }).catch((e) => setError((e as Error).message));
   }, [projectId]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The director's turn, as it happens: its words stream in, each tool call is a line.
-  useEffect(() => subscribe((e) => {
-    if (e.project_id !== projectId) return;
-    const p = e.payload as { turn_id?: string; text?: string; name?: string; ok?: boolean; role?: string; content?: string };
-    if (e.type === "transitions.plan") { loadPlan(); return; }
-    if (!turn.current || p.turn_id !== turn.current) return;
-    if (e.type === "chat.delta" && p.text) {
-      setSteps((s) => s.length && s[s.length - 1].kind === "text"
-        ? [...s.slice(0, -1), { kind: "text", text: s[s.length - 1].text + p.text }] : [...s, { kind: "text", text: p.text! }]);
-    } else if (e.type === "chat.tool" && p.name) {
-      setSteps((s) => [...s, { kind: "tool", text: `${p.ok ? "✓" : "✗"} ${TOOL_LABEL[p.name!] ?? p.name}` }]);
-    } else if (e.type === "chat.message" && (p.role === "note" || p.role === "error") && p.content) {
-      setSteps((s) => [...s, { kind: p.role === "error" ? "error" : "note", text: p.content! }]);
-    }
-  }, () => { loadPlan(); }), [subscribe, projectId]);  // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [steps]);
+  // The director's turn, as it happens (DirectorStream.tsx); a changed plan reloads.
+  const { steps, reset } = useDirectorStream(subscribe, projectId, turn, (type) => {
+    if (type === "transitions.plan" || type === "resync") loadPlan();
+  });
 
   const start = async () => {
-    setBusy(true); setError(null); setSteps([]); setRows([]);
+    setBusy(true); setError(null); reset(); setRows([]);
     try {
       const { plan: p } = await api.planTransitions(projectId, scope, note);
       turn.current = p.turn_id;
@@ -140,14 +121,7 @@ export function TransitionPlannerModal({ projectId, subscribe, onClose, onApplie
                   placeholder="e.g. fade through black between chapters, keep the fight scene snappy" /></label>
             </>)}
 
-          {(phase === "thinking" || (phase !== "setup" && steps.length > 0)) && (
-            <div className={`tp-think ${phase === "thinking" ? "live" : ""}`} ref={log} aria-live="polite">
-              {phase === "thinking" && <p className="tp-status small"><span className="spinner" aria-hidden /> The director is
-                choosing transitions…</p>}
-              {steps.length === 0 && phase === "thinking" && <p className="muted small">Waiting for its first words…</p>}
-              {steps.map((s, i) => <p key={i} className={`tp-step ${s.kind}`}>{s.text}</p>)}
-            </div>
-          )}
+          {phase !== "setup" && <DirectorLog steps={steps} thinking={phase === "thinking"} what="choosing transitions" />}
 
           {phase === "failed" && <p className="error small" role="alert">{plan?.error || "The plan didn't finish."}</p>}
 
@@ -181,7 +155,7 @@ export function TransitionPlannerModal({ projectId, subscribe, onClose, onApplie
           <div className="row modal-actions">
             {(phase === "review" || phase === "failed") &&
               <button type="button" className="ghost" disabled={busy} onClick={async () => {
-                setBusy(true); await api.discardTransitions(projectId).catch(() => undefined); setPlan(null); setSteps([]); setRows([]); setBusy(false);
+                setBusy(true); await api.discardTransitions(projectId).catch(() => undefined); setPlan(null); reset(); setRows([]); setBusy(false);
               }}>Plan again</button>}
             <span className="grow" />
             <button type="button" className="ghost" onClick={phase === "setup" ? onClose : cancel} disabled={busy && phase !== "thinking"}>

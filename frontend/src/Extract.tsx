@@ -205,7 +205,7 @@ function TakeScrubber({ source, startAt, busy, onGrab }: {
 }
 
 /** The picture with a selection you drag; the rest is dimmed. The selection is in fractions of the picture. */
-function CropBox({ src, crop, onChange }: { src: string; crop: Crop | null; onChange: (c: Crop | null) => void }) {
+export function CropBox({ src, crop, onChange }: { src: string; crop: Crop | null; onChange: (c: Crop | null) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const from = useRef<{ x: number; y: number } | null>(null);
   const at = (e: ReactPointerEvent) => {

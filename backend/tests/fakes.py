@@ -426,6 +426,12 @@ class FakeGateway:
             return self._sse(tool=("propose_redo", {
                 "shot_id": m.group(1), "reason": "the setting was lost; restated the rainy night street",
                 "prompt": f"Redo {len(self.requests)}: a rainy suburban street at night, fog, no dialogue, no voices"}))
+        if "write the story for this film's storybook" in text:
+            ids = re.findall(r"^- shot_id (\w+)", text, re.M)
+            return self._sse(tool=("propose_story", {"title": "The Long Wait", "subtitle": "A trench tale",
+                                                     "summary": "Quiet and plain.", "pages": [
+                {"shot_id": sid, "text": f"Page {n + 1}: the fog came in slow and grey over the trench."}
+                for n, sid in enumerate(ids)]}))
         if "plan the transitions" in text and getattr(self, "lazy_transitions", False):
             return self._sse(text="Dissolves everywhere would suit it.")
         if "plan the transitions" in text:
