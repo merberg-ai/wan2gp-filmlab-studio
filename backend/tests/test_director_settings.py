@@ -39,6 +39,24 @@ def test_settings_are_validated_and_reach_every_message(make_harness):
     assert "studio notes" not in last_user_text(h)
 
 
+def test_the_project_style_reaches_every_chat_message_and_get_project(make_harness):
+    from app.director.chat import project_header
+    from app.templates import TEMPLATES
+    h = make_harness().login()
+    pid = h.post("/api/projects", {"title": "Paper Moon", "template": "illustrated_story"}).json()["id"]
+    style = TEMPLATES["illustrated_story"]["style"]
+    assert h.post(f"/api/projects/{pid}/chat", {"text": "Add a shot of the moon"}).status_code == 202
+    h.wait_for(lambda: not h.project(pid)["director_busy"], what="idle")
+    sent = last_user_text(h)
+    assert sent.startswith(f"[FilmLab project: Paper Moon]\n[Style for this film (follow it in every prompt you write): "
+                           f"{style}]\nAdd a shot of the moon")
+    view = h.c.portal.call(h.studio.tools.run, pid, "get_project", "{}")
+    assert view["style"] == style
+    # Plan with director and Enhance carry the style in their own message: not twice.
+    assert project_header({"title": "T", "style": style}, "Style for this film: x") == "[FilmLab project: T]"
+    assert project_header({"title": "T", "style": ""}) == "[FilmLab project: T]"
+
+
 def test_default_autonomy_applies_to_new_projects_only(make_harness):
     h = make_harness().login()
     old = new_project(h, "Old")

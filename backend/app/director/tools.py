@@ -87,7 +87,8 @@ _PLAN_SCENE = {"type": "object", "required": ["shots"], "properties": {
     "shots": {"type": "array", "items": _PLAN_SHOT}}}
 
 TOOLS = [
-    _fn("get_project", "Get this project: brief, target length, scenes, and every shot in storyboard order with its "
+    _fn("get_project", "Get this project: brief, style (follow it in every prompt), target length, scenes, and every "
+                       "shot in storyboard order with its "
                        "status, lock, transition, references and the GPU estimate."),
     _fn("plan_storyboard", "Write a whole storyboard plan in one call: scenes and their shots, in film order. FilmLab "
                            "checks everything first; if anything is wrong NOTHING is written and you get every error to "
@@ -318,7 +319,7 @@ class DirectorTools:
             return {"error": f"internal error in {name} ({type(exc).__name__}); check the arguments or tell the owner"}
 
     async def get_project(self, project_id):
-        project = await self.db.fetchone("SELECT id, title, logline, brief, target_seconds, default_resolution, "
+        project = await self.db.fetchone("SELECT id, title, logline, brief, style, target_seconds, default_resolution, "
                                          "default_frames FROM projects WHERE id = ?", (project_id,))
         rows = await self.db.fetchall("SELECT * FROM shots WHERE project_id = ? AND deleted_at IS NULL ORDER BY position",
                                       (project_id,))

@@ -24,6 +24,17 @@ log = logging.getLogger("filmlab.director")
 REMIND = ("You described {what} but {tool} didn't succeed, so nothing was saved. Call {tool} now with it; "
           "FilmLab writes nothing until that call succeeds. Pass its arguments directly (for example "
           '{{"scenes": [...]}}), not nested under the tool name.')
+STYLE_CHARS = 600
+
+
+def project_header(project: dict, body: str = "") -> str:
+    """The line every turn starts with: the project, and its style so a chat edit or a new shot follows it too
+    (Plan with director and Enhance already put the style in their own message)."""
+    head = f"[FilmLab project: {project['title']}]"
+    style = " ".join((project.get("style") or "").split())[:STYLE_CHARS]
+    if style and "Style for this film" not in body:
+        head += f"\n[Style for this film (follow it in every prompt you write): {style}]"
+    return head
 
 
 # A plan is written in parts: one plan_storyboard call holding a whole long film is more output than the model
@@ -145,7 +156,7 @@ class DirectorChat:
 
     async def _turn(self, project_id: str, turn_id: str, text: str, rounds: int | None,
                     expect: tuple[str, str] | None = None, parts: int = 0, resume=None):
-        project = await self.db.fetchone("SELECT title FROM projects WHERE id = ?", (project_id,))
+        project = await self.db.fetchone("SELECT title, style FROM projects WHERE id = ?", (project_id,))
         conversation, notes, model = f"filmlab:project:{project_id}", "", None
         try:
             if self.settings:
@@ -158,7 +169,7 @@ class DirectorChat:
             log.exception("director settings unavailable; using defaults")
         rounds = rounds or self.max_rounds
         def opening(body: str) -> list[dict]:
-            return [{"role": "user", "content": f"[FilmLab project: {project['title']}]\n{body}{notes}"}]
+            return [{"role": "user", "content": f"{project_header(project, body)}\n{body}{notes}"}]
 
         messages = opening(text)
 
