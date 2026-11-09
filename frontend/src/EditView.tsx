@@ -5,6 +5,7 @@ import { api, type ExportRow, type Music, type ProjectDetail, type Segment, type
 import type { Listener } from "./App";
 import { lib } from "./library-api";
 import { SoundtrackModal } from "./Soundtrack";
+import { TransitionPlannerModal } from "./TransitionPlanner";
 
 type Act = (fn: () => Promise<unknown>) => Promise<void>;
 type Subscribe = (l: Listener, r: () => void) => () => void;
@@ -19,17 +20,22 @@ export function EditView({ project, subscribe }: { project: ProjectDetail; subsc
   const [playhead, setPlayhead] = useState(0);
   /** The soundtrack modal: undefined closed, null adding one, a number changing that music track. */
   const [soundtrack, setSoundtrack] = useState<number | null | undefined>(undefined);
+  const [planning, setPlanning] = useState(false);
+  /** A transition plan the director is working on or has proposed (kept while the modal is closed). */
+  const [tplan, setTplan] = useState<"thinking" | "ready" | null>(null);
   const seekRef = useRef<(t: number) => void>(() => undefined);
   const timer = useRef<number>();
 
   const load = useCallback(() => {
     Promise.all([api.edit(project.id), api.exports(project.id)])
       .then(([t, e]) => { setTl(t); setExports(e); }).catch((e) => setError((e as Error).message));
+    api.transitionPlan(project.id).then(({ plan }) => setTplan(plan && (plan.status === "thinking" || plan.status === "ready")
+      ? plan.status : null)).catch(() => undefined);
   }, [project.id]);
   useEffect(load, [load]);
   useEffect(() => subscribe((e) => {
     if (e.project_id !== project.id) return;
-    if (["edit.updated", "export.updated", "shot.updated", "render.done"].includes(e.type)) {
+    if (["edit.updated", "export.updated", "shot.updated", "render.done", "transitions.plan"].includes(e.type)) {
       window.clearTimeout(timer.current);
       timer.current = window.setTimeout(load, 150);
     }
@@ -69,7 +75,10 @@ export function EditView({ project, subscribe }: { project: ProjectDetail; subsc
           </div>
         )}
         <div className="panel-head"><h2>Timeline</h2>
-          <span className="muted small grow">order and transitions come from the storyboard</span>
+          <span className="muted small grow">order comes from the storyboard</span>
+          {clips.length > 1 && <button className={`ghost small ${tplan === "ready" ? "tp-ready" : ""}`}
+            title="The director picks a transition for each cut (or scene change) from the mood of the shots; you review them"
+            onClick={() => setPlanning(true)}>✨ {tplan === "ready" ? "Review planned transitions" : tplan === "thinking" ? "Planning transitions…" : "Plan transitions"}</button>}
           <button className="ghost small" title="Play a song (MP3, WAV or FLAC) under the film, or replace the one it has"
             onClick={() => setSoundtrack(null)}>🎵 {tl.doc.music.length ? "New soundtrack" : "Add soundtrack"}</button></div>
         <ol className="timeline">
@@ -101,6 +110,7 @@ export function EditView({ project, subscribe }: { project: ProjectDetail; subsc
         <div className="panel-head"><h2>Sound, text and settings</h2></div>
         <TextsPanel tl={tl} project={project} playhead={playhead} patch={patch} />
         <MusicPanel tl={tl} patch={patch} open={setSoundtrack} />
+        {planning && <TransitionPlannerModal projectId={project.id} subscribe={subscribe} onClose={() => { setPlanning(false); load(); }} onApplied={load} />}
         {soundtrack !== undefined && <SoundtrackModal tl={tl} editing={soundtrack} onClose={() => setSoundtrack(undefined)} onSaved={load} />}
         <details className="card">
           <summary><strong>Settings and history</strong></summary>

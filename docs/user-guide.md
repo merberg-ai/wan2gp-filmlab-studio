@@ -229,6 +229,7 @@ Nothing in chat can raise these limits, and **Hold GPU work** stops everything a
 The **Edit & export** tab assembles the film from each shot's chosen take, in storyboard order:
 
 - **Trim** each clip's in and out points, skip clips, set its audio gain or mute it, and set transition lengths.
+- **✨ Plan transitions:** the director chooses a transition and its length for each scene change, or for every cut, based on the mood of the shots on either side. For example, a calm moment might fade out, while action might get a hard cut or a quick wipe. You can watch its reasoning as it works, then adjust the list. **Accept** applies the transitions, and **Cancel** discards them. You can close the window while it works; the button then shows **Review planned transitions**.
 - **Music:** up to two tracks from the Library's sounds, with start, offset, gain, fades and automatic **ducking** under dialogue.
 - **Titles and captions:** title cards (start, end or between shots) and timed captions.
 - **Preview** in the browser, then **export**:

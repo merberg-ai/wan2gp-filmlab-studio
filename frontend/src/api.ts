@@ -438,10 +438,29 @@ export const api = {
     request<{ batches: number; jobs: number }>("POST", `/api/projects/${projectId}/renders/cancel-all`),
   chat: (pid: string) => request<ChatMessage[]>("GET", `/api/projects/${pid}/chat`),
   sendChat: (pid: string, text: string) => request<{ turn_id: string }>("POST", `/api/projects/${pid}/chat`, { text }),
+  transitionCuts: (pid: string) => request<{ cuts: TransitionCut[] }>("GET", `/api/projects/${pid}/transitions/cuts`),
+  transitionPlan: (pid: string) => request<{ plan: TransitionPlan | null }>("GET", `/api/projects/${pid}/transitions/plan`),
+  planTransitions: (pid: string, scope: "scenes" | "all", note: string) =>
+    request<{ plan: TransitionPlan }>("POST", `/api/projects/${pid}/transitions/plan`, { scope, note }),
+  discardTransitions: (pid: string) => request<{ discarded: boolean }>("DELETE", `/api/projects/${pid}/transitions/plan`),
+  applyTransitions: (pid: string, items: { shot_id: string; transition: string; seconds: number }[]) =>
+    request<Timeline>("POST", `/api/projects/${pid}/transitions/apply`, { items }),
   mediaUrl: (id: string) => `/api/media/${id}`,
 };
 
 export const seconds = (frames: number) => ((frames - 1) / 24).toFixed(2).replace(/\.?0+$/, "");
+
+/** Plan transitions (backend/app/transitions.py): the cuts of the edit and the director's proposal for them. */
+export interface TransitionSide { position: number; title: string; idea: string; seconds: number; scene: string | null; scene_mood: string | null }
+export interface TransitionCut {
+  shot_id: string; to_shot_id: string; from: TransitionSide; to: TransitionSide; scene_change: boolean; title_between?: boolean;
+  current: { transition: string; seconds: number }; max_s: number;
+}
+export interface TransitionProposal extends TransitionCut { transition: string; seconds: number; reason: string }
+export interface TransitionPlan {
+  scope: "scenes" | "all"; status: "thinking" | "ready" | "failed" | "applied"; turn_id: string | null;
+  cuts: TransitionCut[]; items: TransitionProposal[]; summary: string; error: string | null; created_at: string;
+}
 
 /** Transitions into the next shot, grouped for the pickers. The names match backend/app/shots.py TRANSITIONS. */
 export const TRANSITION_GROUPS: { group: string; items: [string, string][] }[] = [

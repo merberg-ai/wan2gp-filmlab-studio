@@ -426,6 +426,14 @@ class FakeGateway:
             return self._sse(tool=("propose_redo", {
                 "shot_id": m.group(1), "reason": "the setting was lost; restated the rainy night street",
                 "prompt": f"Redo {len(self.requests)}: a rainy suburban street at night, fog, no dialogue, no voices"}))
+        if "plan the transitions" in text and getattr(self, "lazy_transitions", False):
+            return self._sse(text="Dissolves everywhere would suit it.")
+        if "plan the transitions" in text:
+            ids = re.findall(r"^\d+\. shot_id (\w+)", text, re.M)
+            return self._sse(tool=("propose_transitions", {"summary": "Calm film: soft dissolves, a fade to close.",
+                                                           "transitions": [
+                {"shot_id": sid, "transition": "dissolve" if n % 2 == 0 else "fade", "seconds": 9 if n == 0 else 0.4,
+                 "reason": f"reason {n + 1}"} for n, sid in enumerate(ids)]}))
         if m := re.search(r"enhance shot .*\(shot_id (\w+)\)", text):
             two = "<picture 2> =" in text  # the shot has two references (the enhance message lists them)
             return self._sse(tool=("update_shot", {"shot_id": m.group(1),

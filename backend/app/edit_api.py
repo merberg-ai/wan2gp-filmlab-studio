@@ -5,9 +5,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from . import auth, shots
+from .director.chat import ChatBusy
 from .edit import EditError
 from .export import ExportError, filmstrip, waveform
 from .library import LibraryError
+from .transitions import TransitionError
 
 router = APIRouter(dependencies=[Depends(auth.require_owner)])
 OWNER = "owner"
@@ -97,6 +99,69 @@ async def decide_suggestion(suggestion_id: str, decision: str, request: Request)
         return await st(request).edit.decide(suggestion_id, decision == "accept", OWNER)
     except EditError as exc:
         raise bad(exc) from exc
+
+
+# --- planned transitions (backend/app/transitions.py) -------------------------------------
+
+class TransitionPlanIn(BaseModel):
+    scope: str = "scenes"  # scenes: only where the scene changes; all: every cut
+    note: str = ""
+
+
+class TransitionItem(BaseModel):
+    shot_id: str
+    transition: str
+    seconds: float = 0
+
+
+class TransitionApplyIn(BaseModel):
+    items: list[TransitionItem]
+
+
+@router.get("/api/projects/{project_id}/transitions/cuts")
+async def transition_cuts(project_id: str, request: Request):
+    s = st(request)
+    await live_project(s, project_id)
+    return {"cuts": await s.transitions.cuts(project_id)}
+
+
+@router.get("/api/projects/{project_id}/transitions/plan")
+async def transition_plan(project_id: str, request: Request):
+    s = st(request)
+    await live_project(s, project_id)
+    return {"plan": s.transitions.plan(project_id)}
+
+
+@router.post("/api/projects/{project_id}/transitions/plan", status_code=202)
+async def plan_transitions(project_id: str, body: TransitionPlanIn, request: Request):
+    """The director proposes a transition for each cut, in a chat turn the owner can watch; nothing is applied."""
+    s = st(request)
+    await live_project(s, project_id)
+    if project_id in s.enhance_all.runs:
+        raise HTTPException(409, "the director is enhancing the storyboard's shots; wait for it or stop it")
+    try:
+        return {"plan": await s.transitions.start(project_id, body.scope, body.note[:500])}
+    except ChatBusy as exc:
+        raise HTTPException(409, f"{exc}; wait for it to finish or stop it") from exc
+    except TransitionError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.delete("/api/projects/{project_id}/transitions/plan")
+async def discard_transition_plan(project_id: str, request: Request):
+    s = st(request)
+    await live_project(s, project_id)
+    return {"discarded": await s.transitions.discard(project_id)}
+
+
+@router.post("/api/projects/{project_id}/transitions/apply")
+async def apply_transitions(project_id: str, body: TransitionApplyIn, request: Request):
+    s = st(request)
+    await live_project(s, project_id)
+    try:
+        return await s.transitions.apply(project_id, [i.model_dump() for i in body.items], OWNER)
+    except (TransitionError, EditError, shots.ShotError) as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 # --- exports and deliveries -----------------------------------------------------------

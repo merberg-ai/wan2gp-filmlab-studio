@@ -30,6 +30,7 @@ from .director.chat import ChatBusy, DirectorChat, failed
 from .director.settings import DirectorSettings
 from .director.enhance import can_enhance
 from .enhance_all import EnhanceAll, EnhanceError, enhance_request
+from .transitions import TransitionPlanner
 from .director.gateway import GatewayClient
 from .director.tools import DirectorTools
 from .events import EventBus
@@ -145,6 +146,7 @@ class Studio:
         self.health = Health(self.db, settings.media_dir, settings.data_dir, settings.backup_dir,
                              ollama_transport=vision_transport)
         self.gateway = gateway or GatewayClient(settings.gateway_url, settings.gateway_token, settings.director_agent)
+        self.transitions = TransitionPlanner(self)
         self.tools = DirectorTools(self)
         self.director_settings = DirectorSettings(self.db, settings, self.gateway, ollama_transport=vision_transport)
         self.chat = DirectorChat(self.db, self.bus, self.gateway, self.tools, settings.director_max_tool_rounds,
@@ -324,6 +326,7 @@ class Studio:
         await self.gpu.shutdown()
         await self.inspector.shutdown()
         await self.enhance_all.shutdown()
+        await self.transitions.shutdown()
         await self.chat.shutdown()
         await self.renders.shutdown()
         await self.images.shutdown()
@@ -725,6 +728,11 @@ def create_app(settings: Settings | None = None, studio: Studio | None = None) -
     async def update_shot(shot_id: str, body: ShotIn, request: Request, _=owner):
         s = st(request)
         shot = await shot_or_404(s, shot_id)
+        if set(body.model_dump(exclude_none=True)) == {"transition"}:
+            try:  # the cut into the next shot is the edit's: allowed on approved and rendered shots too
+                return await shots.set_transition(s.db, s.bus, shot, body.transition, "owner")
+            except shots.ShotError as exc:
+                raise shot_error(exc) from exc
         if body.template is not None:
             require_wangp(s)
         try:

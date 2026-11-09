@@ -184,6 +184,15 @@ TOOLS = [
         {"shot_id": {"type": "string"}, "reason": {"type": "string", "description": "What's wrong and what the change fixes"},
          "prompt": {"type": "string", "description": "The full revised prompt; omit to keep the current one"},
          "seed": {"type": "integer"}}, ("shot_id", "reason")),
+    _fn("propose_transitions", "Propose the transition (and its length) for cuts of the edit, when the owner asks you to "
+                               "plan transitions. Only proposes: the owner reviews the list and applies it. One entry "
+                               "per cut; shot_id is the shot the transition leaves (get_edit lists the clips in order).",
+        {"transitions": {"type": "array", "items": {"type": "object", "properties": {
+            "shot_id": {"type": "string"},
+            "transition": {"type": "string", "enum": list(shots.TRANSITIONS)},
+            "seconds": {"type": "number", "description": "Length in seconds; 0 for a cut; at most the cut's max_s"},
+            "reason": {"type": "string", "description": "One short line for the owner"}}}},
+         "summary": {"type": "string", "description": "Your approach in a sentence or two"}}, ("transitions",)),
 ]
 TOOL_NAMES = {t["function"]["name"] for t in TOOLS}
 ARG_NAMES = {t["function"]["name"]: set(t["function"]["parameters"]["properties"]) for t in TOOLS}
@@ -583,6 +592,9 @@ class DirectorTools:
         where = ("FilmLab renders it in the owner's redo run, within its limits, and inspects the new take."
                  if res["run_id"] else "Waiting for the owner to accept it in the cockpit. Nothing is rendering.")
         return res | {"message": where}
+
+    async def propose_transitions(self, project_id, transitions, summary=""):
+        return await self.studio.transitions.propose(project_id, transitions, summary)
 
     async def get_render_status(self, project_id, shot_id):
         shot = await shots.get_shot(self.db, shot_id, project_id)

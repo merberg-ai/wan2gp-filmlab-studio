@@ -470,3 +470,63 @@ def test_every_transition_is_an_effect_this_ffmpeg_has():
     effects = set(re.findall(r"^\s+(\w+)\s+-?\d+\s+\.\.FV", out, re.M))
     assert len(effects) > 40 and {x for x in TRANSITIONS.values() if x} <= effects
     assert TRANSITIONS["cut"] is None and TRANSITIONS["dissolve"] == "fade" and TRANSITIONS["fade"] == "fadeblack"
+
+
+def test_director_plans_transitions_for_review_then_owner_applies(make_harness):
+    h = make_harness().login()
+    pid = small_project(h)
+    a, b, c = (rendered_shot(h, pid, title=t) for t in ("Calm", "Storm", "End"))
+    cuts = h.c.get(f"/api/projects/{pid}/transitions/cuts").json()["cuts"]
+    assert [x["shot_id"] for x in cuts] == [a["id"], b["id"]] and cuts[0]["to_shot_id"] == b["id"]
+    # No scenes, so no scene change to plan: the owner is told to plan every cut.
+    r = h.post(f"/api/projects/{pid}/transitions/plan", {"scope": "scenes"})
+    assert r.status_code == 409 and "every cut" in r.text
+    r = h.post(f"/api/projects/{pid}/transitions/plan", {"scope": "all", "note": "keep it gentle"})
+    assert r.status_code == 202, r.text
+    assert r.json()["plan"]["status"] == "thinking" and r.json()["plan"]["turn_id"]
+    plan = h.wait_for(lambda: (p := h.c.get(f"/api/projects/{pid}/transitions/plan").json()["plan"])
+                      and p["status"] == "ready" and p, what="planned transitions")
+    brief = next(m["content"] for r in h.gateway.requests for m in r["messages"]
+                 if m["role"] == "user" and "Plan the transitions" in m["content"])
+    assert "keep it gentle" in brief and f"shot_id {a['id']}" in brief
+    one, two = plan["items"]
+    assert (one["shot_id"], one["transition"], one["reason"]) == (a["id"], "dissolve", "reason 1")
+    assert one["seconds"] == one["max_s"] <= 3  # 9 s asked: clamped to half the shorter clip
+    assert (two["transition"], two["seconds"]) == ("fade", 0.4) and plan["summary"].startswith("Calm film")
+    # Proposed only: the edit and the shots are unchanged until the owner applies.
+    assert all(s["transition"] == "cut" for s in edit(h, pid)["segments"])
+    # The owner changes the second one in the list, then applies; one shot is approved (still allowed: it's the edit's).
+    h.c.portal.call(h.studio.db.execute, "UPDATE shots SET status = 'approved' WHERE id = ?", (b["id"],))
+    r = h.post(f"/api/projects/{pid}/transitions/apply", {"items": [
+        {"shot_id": a["id"], "transition": "dissolve", "seconds": one["seconds"]},
+        {"shot_id": b["id"], "transition": "wipe_left", "seconds": 0.3}]})
+    assert r.status_code == 200, r.text
+    segs = {s["shot_id"]: s for s in edit(h, pid)["segments"]}
+    assert (segs[a["id"]]["transition"], segs[a["id"]]["transition_s"]) == ("dissolve", one["seconds"])
+    assert (segs[b["id"]]["transition"], segs[b["id"]]["transition_s"]) == ("wipe_left", 0.3)
+    assert segs[c["id"]]["transition"] == "cut"
+    shot_b = next(s for s in h.project(pid)["shots"] if s["id"] == b["id"])
+    assert shot_b["status"] == "approved"  # the transition never touches the render state
+    assert h.c.get(f"/api/projects/{pid}/transitions/plan").json()["plan"] is None
+    assert edit(h, pid)["revisions"][0]["note"] == "applied planned transitions (2 cuts)"
+    # The Edit view's own picker also works on an approved shot now.
+    assert patch(h, f"/api/shots/{b['id']}", {"transition": "fade_white"}).status_code == 200
+    assert patch(h, f"/api/shots/{b['id']}", {"transition": "nope"}).status_code in (409, 422)
+    # Bad items are refused before anything changes.
+    r = h.post(f"/api/projects/{pid}/transitions/apply", {"items": [{"shot_id": a["id"], "transition": "spin"}]})
+    assert r.status_code == 422
+
+
+def test_transition_plan_without_a_proposal_fails_and_can_be_discarded(make_harness):
+    h = make_harness().login()
+    pid = small_project(h)
+    rendered_shot(h, pid, title="One")
+    assert "two clips" in h.post(f"/api/projects/{pid}/transitions/plan", {"scope": "all"}).text
+    rendered_shot(h, pid, title="Two")
+    h.gateway.lazy_transitions = True  # answers with text only (and again when reminded)
+    r = h.post(f"/api/projects/{pid}/transitions/plan", {"scope": "all"})
+    assert r.status_code == 202
+    plan = h.wait_for(lambda: (p := h.c.get(f"/api/projects/{pid}/transitions/plan").json()["plan"])
+                      and p["status"] == "failed" and p, what="failed plan")
+    assert "without proposing" in plan["error"]
+    assert h.c.delete(f"/api/projects/{pid}/transitions/plan", headers={"x-csrf-token": h.csrf}).json() == {"discarded": True}

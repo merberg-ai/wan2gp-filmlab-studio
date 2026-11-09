@@ -155,6 +155,22 @@ async def update_shot(db: Database, bus: EventBus, shot: dict, fields: dict, act
     return await get_shot(db, shot["id"])
 
 
+async def set_transition(db: Database, bus: EventBus, shot: dict, transition: str, actor: str,
+                         rationale: str = "") -> dict:
+    """The transition into the next shot belongs to the edit, not the render: it can change on a shot in any state
+    (approved, rendering, rendered) and never withdraws an approval or changes the shot's status."""
+    if transition not in TRANSITIONS:
+        raise ShotError(f"transition must be one of {', '.join(TRANSITIONS)}")
+    if shot["transition"] == transition:
+        return shot
+    before = await snapshot(db, shot["id"])
+    await db.execute("UPDATE shots SET transition = ?, updated_at = ? WHERE id = ?", (transition, now(), shot["id"]))
+    await db.audit(actor, "shot.transition", shot["id"], {"transition": transition})
+    await record(db, shot["id"], actor, "update", before, rationale)
+    await bus.publish("shot.updated", {"shot_id": shot["id"], "status": shot["status"]}, shot["project_id"])
+    return await get_shot(db, shot["id"])
+
+
 async def request_approval(db: Database, bus: EventBus, shot: dict, actor: str, note: str = "") -> dict:
     if shot["status"] not in ("draft", "failed"):
         raise ShotError(f"shot is {shot['status']}; it cannot be submitted for approval")
