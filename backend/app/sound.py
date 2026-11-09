@@ -34,6 +34,20 @@ def _str(v, limit: int, name: str, errors: list, required=False) -> str:
     return s[:limit]
 
 
+# Stage directions written into a spoken line: "(wheezing) Get out!" or "[whispers] Run." Speech models say them
+# aloud, so they move to the line's delivery (or a voice's description) and only the words are spoken.
+_DIRECTION = re.compile(r"\s*[\(\[]([^\)\]]{1,120})[\)\]]\s*")
+
+
+def split_directions(text: str) -> tuple[str, str]:
+    """(the words to say, the stage directions that were in brackets). A line that is only a direction stays as is."""
+    found = [m.strip(" .,;") for m in _DIRECTION.findall(text or "")]
+    words = " ".join(_DIRECTION.sub(" ", text or "").split())
+    if not found or not re.search(r"\w", words):
+        return text, ""
+    return words, ", ".join(f for f in found if f)
+
+
 def clean_sound(value, errors: list | None = None) -> dict | None:
     """Normalise a shot's sound (from the owner, the director or a plan). Raises SoundError unless errors is given."""
     own = errors is None
@@ -64,10 +78,14 @@ def clean_sound(value, errors: list | None = None) -> dict | None:
         if lang and lang.lower() not in LANGUAGES:
             errors.append(f"sound.lines[{i}].language must be one of {', '.join(sorted(LANGUAGES))}")
         text = _str(ln.get("text") or ln.get("line"), 300, f"sound.lines[{i}].text", errors, required=True)
+        text, directions = split_directions(text.strip("“”\"'") if text else text)
+        delivery = _str(ln.get("delivery"), 120, f"sound.lines[{i}].delivery", errors)
+        if directions:
+            delivery = ", ".join(x for x in (delivery, directions) if x)[:120]
         lines.append({"speaker": _str(ln.get("speaker") or ln.get("who"), 80, f"sound.lines[{i}].speaker", errors,
                                       required=True),
-                      "text": text.strip("“”\"'") if text else text,
-                      "delivery": _str(ln.get("delivery"), 120, f"sound.lines[{i}].delivery", errors),
+                      "text": text,
+                      "delivery": delivery,
                       "language": lang.capitalize() if lang else ""})
     out = {"lines": lines,
            "ambience": _str(value.get("ambience") or value.get("soundscape"), 600, "sound.ambience", errors),
@@ -177,9 +195,10 @@ def compile_h3(prompt: str, sound: dict, refs: list[dict], voices: list[dict], i
         voice = f" in the voice referenced from {audio[s['asset_id']]}," if s and s["asset_id"] in audio else ""
         speech.append(f"{who} says{how}{voice} ({sid}) <d>[{ln['language'] or 'English'}] {ln['text']}</d>")
     if speech:
-        body = " ".join(speech)
-        speech_text = (f"{body} Their lips stay synchronized with the words. These are the only words spoken; nobody "
-                       "else speaks.")
+        # Nothing may follow the last line: with a voice reference H3 keeps talking after </d> and reads whatever
+        # comes next aloud (it said "These are the only words spoken…" in every take). Lip sync goes before the
+        # line; "no other speech" goes in the soundscape.
+        speech_text = "Lips stay synchronized with the dialogue. " + " ".join(speech)
     else:
         speech_text = "Nobody speaks: there is no dialogue, no voice-over and no singing."
     detailed = f"{picture if picture.startswith('[Shot') else '[Shot 1] ' + picture} {speech_text}"
@@ -187,6 +206,8 @@ def compile_h3(prompt: str, sound: dict, refs: list[dict], voices: list[dict], i
     ambience = sound["ambience"] or "Natural sounds of the action and the room tone of the place."
     if not sound["lines"]:
         ambience = ambience.rstrip(". ") + ". No speech, voices, murmurs or vocal sounds."
+    else:
+        ambience = ambience.rstrip(". ") + ". Apart from the dialogue, no other speech, voices or murmurs."
     return "\n".join([
         "subject_definitions:", *(defs or ["No reference subjects: everything is described below."]),
         "summary:", summary,

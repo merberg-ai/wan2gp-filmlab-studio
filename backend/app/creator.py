@@ -17,6 +17,7 @@ from .db import Database, new_id, now
 from .director.gateway import GatewayError
 from .events import EventBus
 from .library import KINDS, LibraryError
+from .sound import split_directions
 
 log = logging.getLogger("filmlab.creator")
 ACTIVE_STATES = ("drafting", "ready")
@@ -80,6 +81,11 @@ def clean_plan(kind: str, plan, brief: str = "") -> dict:
     if kind == "character" and isinstance(voice, dict) and (voice.get("description") or voice.get("line")):
         out["voice"] = {"description": _text(voice.get("description"), 500, "voice.description", errors, required=True),
                         "line": _text(voice.get("line"), 300, "voice.line", errors, required=True)}
+        # "(Wheezing, raspy voice) Get out!": the voice model speaks the brackets, so they join the description.
+        words, directions = split_directions(out["voice"]["line"])
+        if directions:
+            out["voice"] = {"line": words,
+                            "description": f"{out['voice']['description'].rstrip('. ')}. {directions}."[:500]}
     music = plan.get("music")
     if kind == "sound":
         if not isinstance(music, dict) or not music.get("style"):
@@ -454,17 +460,20 @@ class Creator:
                 raise CreatorError("this draft has no voice")
             if not c.get("voice_sample_file_id"):
                 raise CreatorError("upload a voice sample first: the voice is cloned from it")
+            words, _ = split_directions(plan["voice"]["line"])  # a draft saved before directions were split off
             jobs.append(await self.s.images.submit(
-                variant, plan["voice"]["line"], actor, cfg["voice_clone"], count=count or 1, label="voice", media="audio",
+                variant, words, actor, cfg["voice_clone"], count=count or 1, label="voice", media="audio",
                 extra={"duration_seconds": 20}, audio_file_id=c["voice_sample_file_id"]))
         elif part == "voice":
             if c["kind"] != "character" or not plan.get("voice"):
                 raise CreatorError("this draft has no voice to design")
+            words, directions = split_directions(plan["voice"]["line"])  # spoken words only; directions shape the voice
+            how = f"{plan['voice']['description'].rstrip('. ')}. {directions}." if directions else plan["voice"]["description"]
             jobs.append(await self.s.images.submit(
-                variant, plan["voice"]["line"], actor, cfg["voice_design"], count=count or 2, label="voice", media="audio",
-                extra={"alt_prompt": plan["voice"]["description"], "duration_seconds": 20}))
+                variant, words, actor, cfg["voice_design"], count=count or 2, label="voice", media="audio",
+                extra={"alt_prompt": how[:500], "duration_seconds": 20}))
         elif part == "say":
-            text = " ".join(str(line or "").split())
+            text = split_directions(" ".join(str(line or "").split()))[0]
             if not 3 <= len(text) <= 300:
                 raise CreatorError("type a line of 3-300 characters for the voice to say")
             a = await self.s.library.asset(c["asset_id"])

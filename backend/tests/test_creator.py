@@ -36,7 +36,8 @@ def test_character_from_description_to_library(make_harness):
     assert r.status_code == 201, r.text
     c = ready(h, r.json()["id"])
     assert c["status"] == "ready" and c["plan"]["name"] == "Anthony_science" and len(c["plan"]["views"]) == 2
-    assert c["plan"]["voice"]["line"] == "Hello! I am awake."
+    assert c["plan"]["voice"]["line"] == "Hello! I am awake."  # "(cheerfully)" would be spoken: it's a direction
+    assert c["plan"]["voice"]["description"].endswith("bright and curious. cheerfully.")
     # a draft: hidden from the library (and so from the director and shots) until approved
     assert not [a for a in h.c.get("/api/library").json() if a["id"] == c["asset_id"]]
     assert asset(h, c)["name"] == "Anthony_science" and asset(h, c)["draft"] == 1

@@ -376,7 +376,7 @@ class FakeGateway:
                     {"label": "front portrait", "prompt": "Front portrait of a friendly silver android, plain grey background"},
                     {"label": "full body", "prompt": "Full body of the same android standing; keep the same face and colours"}]}
         if "design the voice" in text or "voice is cloned" in text:
-            plan["voice"] = {"description": "young male android, bright and curious", "line": "Hello! I am awake."}
+            plan["voice"] = {"description": "young male android, bright and curious", "line": "(cheerfully) Hello! I am awake."}
         return plan
 
     def handle(self, request: httpx.Request) -> httpx.Response:

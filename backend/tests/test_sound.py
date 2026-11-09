@@ -52,8 +52,23 @@ def test_h3_prompt_has_exact_words_subjects_and_sections():
     assert "[Shot 1] Medium shot in <Subject 3>. <Subject 1> lies on a workbench" in p
     assert "Sound:" not in p and '"Dad!"' not in p  # the old free-text sound tail is replaced by the fields
     assert "<Subject 1> says, soft, amazed, in the voice referenced from <Audio 1>, (S1) <d>[English] Dad!</d>" in p
-    assert "<Subject 2> says (S2) <d>[English] Great Scott! He's alive!</d>" in p and "nobody else speaks" in p
-    assert "overall_soundscape: servo whirr, electrical hum" in p and p.endswith("non_diegetic_music: N/A")
+    assert "<Subject 2> says (S2) <d>[English] Great Scott! He's alive!</d>" in p
+    # Nothing follows the last line (H3 reads it aloud); "no other speech" is in the soundscape instead.
+    detailed = next(ln for ln in p.splitlines() if ln.startswith("[Shot 1]"))
+    assert detailed.endswith("</d>") and "Lips stay synchronized with the dialogue. <Subject 1> says" in detailed
+    assert "nobody else speaks" not in p and "These are the only" not in p
+    assert ("overall_soundscape: servo whirr, electrical hum. Apart from the dialogue, no other speech, voices or murmurs."
+            in p) and p.endswith("non_diegetic_music: N/A")
+
+
+def test_stage_directions_in_a_line_are_not_spoken():
+    s = sound.clean_sound({"lines": [
+        {"speaker": "Fat_Old_Hag", "text": "(Wheezing, raspy voice) Get out of my sight! [cackles]", "delivery": "slow"},
+        {"speaker": "Jason", "text": "(screams)"}]})
+    assert s["lines"][0]["text"] == "Get out of my sight!"
+    assert s["lines"][0]["delivery"] == "slow, Wheezing, raspy voice, cackles"
+    assert s["lines"][1]["text"] == "(screams)"  # only a direction: left for the owner to turn into words
+    assert sound.split_directions("No brackets here.") == ("No brackets here.", "")
 
 
 def test_h3_prompt_when_nobody_speaks_and_owner_written_prompts():
