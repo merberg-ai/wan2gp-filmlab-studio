@@ -55,7 +55,7 @@ export function EditView({ project, subscribe }: { project: ProjectDetail; subsc
         <Preview tl={tl} onTime={setPlayhead} seekRef={seekRef} />
         <ExportPanel project={project} tl={tl} exports={exports} act={act} />
       </section>
-      <section className="panel ev-right">
+      <section className="panel ev-mid">
         {tl.suggestions.length > 0 && (
           <div className="card approval-list">
             <h3>Director suggests</h3>
@@ -97,6 +97,9 @@ export function EditView({ project, subscribe }: { project: ProjectDetail; subsc
               need, use Delete under the take in the Storyboard view.</p>
           </div>
         )}
+      </section>
+      <section className="panel ev-side">
+        <div className="panel-head"><h2>Sound, text and settings</h2></div>
         <TextsPanel tl={tl} project={project} playhead={playhead} patch={patch} />
         <MusicPanel tl={tl} patch={patch} open={setSoundtrack} />
         {soundtrack !== undefined && <SoundtrackModal tl={tl} editing={soundtrack} onClose={() => setSoundtrack(undefined)} onSaved={load} />}
@@ -145,14 +148,20 @@ function ClipRow({ seg, tl, project, playhead, onSeek, patch, act }: {
   const set = (c: Record<string, unknown>, note: string) => patch({ clips: { [sid]: c }, note });
   return (
     <li className={`card seg-clip ${here ? "here" : ""}`}>
-      <div className="row">
-        <button className="link" onClick={() => onSeek(seg.start_s)}><strong>{seg.position}. {seg.title}</strong></button>
-        <span className="muted small grow">at {fmt(seg.start_s)} · {(seg.frames / fps).toFixed(2)} s of {(src.frames / fps).toFixed(2)} s</span>
-        <TakePicker seg={seg} project={project} act={act} />
-        <button className="ghost small" title="Leave this shot out of the film (you can put it back)" onClick={() => set({ skip: true }, `left out shot ${seg.position}`)}>Leave out</button>
+      <div className="seg-main">
+        <div className="row">
+          <button className="link" onClick={() => onSeek(seg.start_s)}><strong>{seg.position}. {seg.title}</strong></button>
+          <span className="muted small grow">at {fmt(seg.start_s)} · {(seg.frames / fps).toFixed(2)} s of {(src.frames / fps).toFixed(2)} s</span>
+        </div>
+        <div className="row">
+          <TakePicker seg={seg} project={project} act={act} />
+          <span className="grow" />
+          <button className="ghost small" title="Leave this shot out of the film (you can put it back)" onClick={() => set({ skip: true }, `left out shot ${seg.position}`)}>Leave out</button>
+        </div>
+        {seg.media_id && <img className="filmstrip" src={api.filmstripUrl(seg.media_id)} alt="" loading="lazy" onClick={() => onSeek(seg.start_s)} />}
+        {seg.media_id && src.has_audio && !seg.mute && <img className="waveform" src={api.waveformUrl(seg.media_id)} alt="" loading="lazy" />}
       </div>
-      {seg.media_id && <img className="filmstrip" src={api.filmstripUrl(seg.media_id)} alt="" loading="lazy" />}
-      {seg.media_id && src.has_audio && !seg.mute && <img className="waveform" src={api.waveformUrl(seg.media_id)} alt="" loading="lazy" />}
+      <div className="seg-ctl">
       <div className="row small">
         <label>In (s)<NumberField value={Number(inS.toFixed(3))} min={0} max={outS - 1 / fps} step={1 / fps}
           onCommit={(v) => set({ in: Math.round(v * fps) }, `trimmed the start of shot ${seg.position}`)} /></label>
@@ -173,6 +182,7 @@ function ClipRow({ seg, tl, project, playhead, onSeek, patch, act }: {
         {seg.transition !== "cut" && <label>Length (s)<NumberField value={seg.transition_s} min={0.05} max={3} step={0.05}
           onCommit={(v) => set({ transition_s: v }, `transition after shot ${seg.position}`)} /></label>}
       </div>
+      </div>
     </li>
   );
 }
@@ -184,7 +194,7 @@ function TextsPanel({ tl, project, playhead, patch }: {
   const save = (next: TextItem[], note: string) => patch({ texts: next, note });
   const change = (i: number, c: Partial<TextItem>, note: string) => save(texts.map((t, j) => (j === i ? { ...t, ...c } : t)), note);
   return (
-    <details className="card" open={texts.length > 0}>
+    <details className="card" open>
       <summary><strong>Titles and captions</strong> <span className="muted small">· {texts.length}</span></summary>
       <ul className="texts">
         {texts.map((t, i) => (
@@ -228,7 +238,7 @@ function MusicPanel({ tl, patch, open }: {
   const save = (next: Music[], note: string) => patch({ music: next, note });
   const change = (i: number, c: Partial<Music>, note: string) => save(music.map((m, j) => (j === i ? { ...m, ...c } : m)), note);
   return (
-    <details className="card" open={music.length > 0}>
+    <details className="card" open>
       <summary><strong>Soundtrack and music</strong> <span className="muted small">· {music.length} of 2{muted ? " · shots muted" : ""}</span></summary>
       {music.map((m, i) => (
         <div key={m.id ?? i} className="music">
@@ -325,7 +335,9 @@ function Preview({ tl, onTime, seekRef }: { tl: Timeline; onTime: (t: number) =>
   const captions = useMemo(() => tl.doc.texts.filter((c) => c.kind === "caption" && (c.start_s ?? 0) <= t && t < (c.end_s ?? 0)), [tl, t]);
   return (
     <div className="preview">
-      <div className="screen" style={{ aspectRatio: `${tl.width} / ${tl.height}` }}>
+      <div className="screen" style={{ aspectRatio: `${tl.width} / ${tl.height}`,
+        // At most about 60 % of the window's height: a portrait film stays fully in view next to its controls.
+        maxWidth: `calc(var(--pv-max-h, 60vh) * ${tl.width} / ${tl.height})` }}>
         <video ref={video} playsInline preload="auto" className={seg?.kind === "clip" ? "" : "hidden"} />
         {seg?.kind === "title" && <div className={`card-text pos-${seg.text_position}`}>{seg.text}</div>}
         {captions.map((c, i) => <div key={i} className={`caption pos-${c.position ?? "bottom"}`}>{c.text}</div>)}
@@ -385,33 +397,117 @@ function DownloadLink({ url, label }: { url: string; label: string }) {
     {state === "busy" ? `${label}…` : state === "failed" ? `${label} (retry)` : label}</a>;
 }
 
+/** The final export's quality choices (backend/app/export.py); the defaults are the encode FilmLab always used. */
+type Quality = { codec: "h264" | "h265"; quality: "small" | "standard" | "high" | "best"; size: string;
+  ten_bit: boolean; sharpen: boolean; audio_kbps: number; burn: boolean; srt: boolean };
+const QUALITY_DEFAULT: Quality = { codec: "h264", quality: "standard", size: "native", ten_bit: false, sharpen: false,
+  audio_kbps: 192, burn: true, srt: false };
+const QUALITY_LABEL = { small: "Small file", standard: "Standard", high: "High", best: "Best (slow)" };
+const QUALITY_HINT = {
+  small: "Noticeably smaller files; fine for sharing previews",
+  standard: "Visually lossless for most films (the default)",
+  high: "More detail kept in fast motion and dark scenes; bigger files, slower",
+  best: "Near-archival; much bigger files and several times slower to encode",
+};
+const SIZE_LABEL: Record<string, string> = { native: "Project size", "720": "720p", "1080": "1080p (Full HD)", "1440": "1440p (2K)", "2160": "2160p (4K)" };
+const CODEC_LABEL = { h264: "H.264", h265: "H.265 (HEVC)" };
+
+function sizedTo(w: number, h: number, size: string): [number, number] {
+  if (size === "native") return [w, h];
+  const k = Number(size) / Math.min(w, h);
+  const even = (x: number) => Math.max(2, Math.round(x / 2) * 2);
+  return [even(w * k), even(h * k)];
+}
+
+function useQuality(projectId: string): [Quality, (c: Partial<Quality>) => void] {
+  const key = `filmlab.export.${projectId}`;
+  const [q, setQ] = useState<Quality>(() => {
+    try { return { ...QUALITY_DEFAULT, ...JSON.parse(localStorage.getItem(key) || "{}") }; } catch { return QUALITY_DEFAULT; }
+  });
+  const change = (c: Partial<Quality>) => setQ((x) => {
+    const n = { ...x, ...c };
+    if (n.codec !== "h265") n.ten_bit = false;  // 10-bit H.264 plays almost nowhere
+    try { localStorage.setItem(key, JSON.stringify(n)); } catch { /* private window: not remembered */ }
+    return n;
+  });
+  return [q, change];
+}
+
 function ExportPanel({ project, tl, exports, act }: { project: ProjectDetail; tl: Timeline; exports: ExportRow[]; act: Act }) {
   const hasCaptions = tl.doc.texts.some((t) => t.kind === "caption");
-  const [burn, setBurn] = useState(true);
-  const [srt, setSrt] = useState(false);
+  const [q, setQ] = useQuality(project.id);
   const [watch, setWatch] = useState<string | null>(null);
   const busy = exports.some((e) => ACTIVE.has(e.status));
-  const start = (kind: "draft" | "final") => act(() => api.startExport(project.id, { kind, burn_captions: burn, srt, loudness: tl.doc.settings.loudness }));
+  const [w, h] = sizedTo(tl.width, tl.height, q.size);
+  const upscale = q.size !== "native" && Math.min(w, h) > Math.min(tl.width, tl.height);
+  const start = (kind: "draft" | "final") => act(() => api.startExport(project.id, {
+    kind, burn_captions: q.burn, srt: q.srt, loudness: tl.doc.settings.loudness,
+    ...(kind === "final" ? { codec: q.codec, quality: q.quality, size: q.size, ten_bit: q.ten_bit, sharpen: q.sharpen,
+      audio_kbps: q.audio_kbps } : {}),
+  }));
+  const changed = JSON.stringify({ ...q, burn: true, srt: false }) !== JSON.stringify({ ...QUALITY_DEFAULT });
   return (
     <div className="card exports">
-      <h3>Export</h3>
-      {hasCaptions && (
-        <div className="row small">
-          <label className="check"><input type="checkbox" checked={burn} onChange={(e) => setBurn(e.target.checked)} /> Burn captions into the picture</label>
-          <label className="check"><input type="checkbox" checked={srt} onChange={(e) => setSrt(e.target.checked)} /> Also a .srt file</label>
-        </div>
-      )}
+      <div className="row"><h3 className="grow">Export</h3>
+        {changed && <button className="link small" onClick={() => setQ({ ...QUALITY_DEFAULT, burn: q.burn, srt: q.srt })}>Reset quality</button>}</div>
+      <div className="ex-grid small">
+        <label>Codec
+          <select value={q.codec} onChange={(e) => setQ({ codec: e.target.value as Quality["codec"] })}>
+            {Object.entries(CODEC_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <span className="muted">{q.codec === "h264" ? "Plays everywhere" : "About half the size at the same quality; plays on recent devices"}</span>
+        </label>
+        <label>Quality
+          <select value={q.quality} onChange={(e) => setQ({ quality: e.target.value as Quality["quality"] })}>
+            {Object.entries(QUALITY_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <span className="muted">{QUALITY_HINT[q.quality]}</span>
+        </label>
+        <label>Size
+          <select value={q.size} onChange={(e) => setQ({ size: e.target.value })}>
+            {Object.entries(SIZE_LABEL).map(([k, v]) => {
+              const [sw, sh] = sizedTo(tl.width, tl.height, k);
+              return <option key={k} value={k}>{v} · {sw}×{sh}</option>;
+            })}
+          </select>
+          <span className="muted">{upscale ? "Upscaled with lanczos: smoother edges, no new detail" : q.size === "native" ? "The size the shots were rendered at" : "Downscaled"}</span>
+        </label>
+        <label>Audio
+          <select value={q.audio_kbps} onChange={(e) => setQ({ audio_kbps: Number(e.target.value) })}>
+            {[128, 192, 256, 320].map((k) => <option key={k} value={k}>AAC {k} kbps{k === 192 ? " (default)" : ""}</option>)}
+          </select>
+          <span className="muted">{q.audio_kbps >= 256 ? "Best for a music-led film" : "Plenty for dialogue and most music"}</span>
+        </label>
+      </div>
+      <div className="ex-checks small">
+        <label className="check" title={q.codec !== "h265" ? "Choose H.265 for 10-bit" : "Smoother gradients (skies, fog, dark scenes) with less banding"}>
+          <input type="checkbox" className="switch" checked={q.ten_bit} disabled={q.codec !== "h265"} onChange={(e) => setQ({ ten_bit: e.target.checked })} />
+          10-bit color <span className="muted">(less banding{q.codec !== "h265" ? "; H.265 only" : ""})</span></label>
+        <label className="check" title="A light unsharp mask on every clip: crisper detail, especially after upscaling">
+          <input type="checkbox" className="switch" checked={q.sharpen} onChange={(e) => setQ({ sharpen: e.target.checked })} />
+          Sharpen slightly</label>
+        <label className="check" title="−14 LUFS: the level streaming sites play at (also in Settings and history)">
+          <input type="checkbox" className="switch" checked={tl.doc.settings.loudness}
+            onChange={(e) => act(() => api.patchEdit(project.id, { settings: { ...tl.doc.settings, loudness: e.target.checked }, note: "loudness setting" }))} />
+          Normalise loudness <span className="muted">(−14 LUFS)</span></label>
+        {hasCaptions && <>
+          <label className="check"><input type="checkbox" className="switch" checked={q.burn} onChange={(e) => setQ({ burn: e.target.checked })} /> Burn captions into the picture</label>
+          <label className="check"><input type="checkbox" className="switch" checked={q.srt} onChange={(e) => setQ({ srt: e.target.checked })} /> Also a .srt file</label>
+        </>}
+      </div>
       <div className="row">
-        <button className="ghost" disabled={busy || !tl.segments.length} onClick={() => start("draft")} title="Fast 540p render, made exactly like the final film">Draft export</button>
+        <button className="ghost" disabled={busy || !tl.segments.length} onClick={() => start("draft")} title="Fast 540p render, made exactly like the final film (the quality choices apply to Export film)">Draft export</button>
         <button className="primary" disabled={busy || !tl.segments.length} onClick={() => start("final")}>Export film</button>
-        <span className="small muted grow">MP4 · H.264 + AAC · {tl.width}×{tl.height} · {tl.fps} fps{tl.doc.settings.loudness ? " · −14 LUFS" : ""}. Runs on the CPU; WanGP keeps the GPU.</span>
+        <span className="small muted grow">MP4 · {CODEC_LABEL[q.codec]}{q.ten_bit ? " 10-bit" : ""} + AAC {q.audio_kbps}k · {w}×{h} · {tl.fps} fps
+          {tl.doc.settings.loudness ? " · −14 LUFS" : ""}. Runs on the CPU; WanGP keeps the GPU.</span>
       </div>
       <ul className="deliveries">
         {exports.map((e) => (
           <li key={e.id} className={`delivery ${e.kind}`}>
             <div className="row">
               <strong className="grow">{e.number ? `Delivery ${e.number}` : "Draft"}
-                <span className="muted small"> · {e.status === "done" ? `${e.duration_s?.toFixed(2)} s · ${e.summary.width}×${e.summary.height} · ${((e.bytes ?? 0) / 1e6).toFixed(1)} MB · ${e.summary.mode === "copy" ? "joined without re-encoding" : "encoded"}`
+                <span className="muted small"> · {e.status === "done" ? `${e.duration_s?.toFixed(2)} s · ${e.summary.width}×${e.summary.height} · ${((e.bytes ?? 0) / 1e6).toFixed(1)} MB · ${e.summary.mode === "copy" ? "joined without re-encoding"
+                    : `${CODEC_LABEL[(e.summary.codec ?? "h264") as Quality["codec"]] ?? "encoded"}${e.summary.ten_bit ? " 10-bit" : ""}${e.kind === "final" && e.summary.quality ? ` · ${QUALITY_LABEL[e.summary.quality as Quality["quality"]] ?? e.summary.quality}` : ""}${e.summary.audio ? ` · ${e.summary.audio}` : ""}`}`
                   : e.status} · {new Date(e.created_at).toLocaleString()}</span></strong>
               {ACTIVE.has(e.status) && <button className="ghost small" onClick={() => act(() => api.exportAction(e.id, "cancel"))}>Cancel</button>}
               {e.status === "done" && <>

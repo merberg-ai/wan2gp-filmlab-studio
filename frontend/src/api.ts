@@ -55,7 +55,8 @@ export interface ExportRow {
   srt: number; verify_status: string | null; verify_detail: string | null; verified_at: string | null;
   created_at: string; finished_at: string | null;
   summary: { total_s: number; width: number; height: number; fps: number; clips: number; titles: number; music: number;
-    captions: number; burn_captions: boolean; loudness: boolean; mode: string };
+    captions: number; burn_captions: boolean; loudness: boolean; mode: string;
+    codec?: string; quality?: string; ten_bit?: boolean; audio?: string };
 }
 export interface Scene {
   id: string; project_id: string; position: number; title: string; goal: string; time_place: string; mood: string;
@@ -370,7 +371,8 @@ export const api = {
   restoreEdit: (revId: string) => request<Timeline>("POST", `/api/edit-revisions/${revId}/restore`),
   decideSuggestion: (id: string, accept: boolean) => request("POST", `/api/edit-suggestions/${id}/${accept ? "accept" : "reject"}`),
   exports: (pid: string) => request<ExportRow[]>("GET", `/api/projects/${pid}/exports`),
-  startExport: (pid: string, o: { kind: "draft" | "final"; burn_captions: boolean; srt: boolean; loudness: boolean }) =>
+  startExport: (pid: string, o: { kind: "draft" | "final"; burn_captions: boolean; srt: boolean; loudness: boolean;
+    codec?: string; quality?: string; size?: string; ten_bit?: boolean; sharpen?: boolean; audio_kbps?: number }) =>
     request<ExportRow>("POST", `/api/projects/${pid}/exports`, o),
   exportAction: (id: string, action: "cancel" | "verify") => request<ExportRow>("POST", `/api/exports/${id}/${action}`),
   deleteExport: (id: string) => request("DELETE", `/api/exports/${id}`),

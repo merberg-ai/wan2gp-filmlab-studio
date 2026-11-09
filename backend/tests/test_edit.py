@@ -259,6 +259,38 @@ def test_untrimmed_cuts_are_joined_without_reencoding(make_harness):
     assert int(out.strip()) == frames
 
 
+def test_export_quality_choices(make_harness):
+    h = make_harness().login()
+    pid = small_project(h)  # 320x180
+    a, _ = rendered_shot(h, pid, "A"), rendered_shot(h, pid, "B")
+    patch(h, f"/api/projects/{pid}/edit", {"clips": {a["id"]: {"in": 2}},
+                                           "texts": [{"kind": "caption", "text": "Night", "start_s": 0.2, "end_s": 0.8}]})
+    for bad in ({"codec": "vp9"}, {"quality": "ultra"}, {"size": "4320"}, {"audio_kbps": 96},
+                {"codec": "h264", "ten_bit": True}):
+        r = h.post(f"/api/projects/{pid}/exports", {"kind": "final", **bad})
+        assert r.status_code == 409 and "must be" in r.text or "needs H.265" in r.text, (bad, r.text)
+    assert not h.c.get(f"/api/projects/{pid}/exports").json()  # nothing was started
+    e = export(h, pid, codec="h265", quality="high", size="720", ten_bit=True, sharpen=True, audio_kbps=256)
+    assert e["status"] == "done", e.get("error")
+    s = e["summary"]
+    assert (s["codec"], s["quality"], s["ten_bit"], s["audio"], s["width"], s["height"]) == \
+        ("h265", "high", True, "256k", 1280, 720)
+    info = ffprobe(file_of(h, e))
+    v = next(x for x in info["streams"] if x["codec_type"] == "video")
+    assert (v["codec_name"], v["codec_tag_string"], v["pix_fmt"], v["width"], v["height"]) == \
+        ("hevc", "hvc1", "yuv420p10le", 1280, 720)
+    manifest = json.loads(file_of(h, e, "manifest").read_text())
+    assert manifest["encode"]["video"]["crf"] == 19 and manifest["picture"]["sharpen"] is True
+    # Rebuilt from its manifest alone, it is the same film.
+    assert h.post(f"/api/exports/{e['id']}/verify").status_code == 200
+    v = h.wait_for(lambda: (x := next(y for y in h.c.get(f"/api/projects/{pid}/exports").json() if y["id"] == e["id"]))
+                   ["verify_status"] not in (None, "running") and x, timeout=90, what="verify")
+    assert v["verify_status"] == "match", v["verify_detail"]
+    # The defaults are today's encode: still H.264 at the project's size.
+    d = export(h, pid)
+    assert (d["summary"]["codec"], d["summary"]["quality"], d["summary"]["width"]) == ("h264", "standard", 320)
+
+
 def test_verify_deliveries_stay_immutable_and_drafts(make_harness):
     h = make_harness().login()
     pid = small_project(h)

@@ -106,6 +106,13 @@ class ExportIn(BaseModel):
     burn_captions: bool = True
     srt: bool = False
     loudness: bool | None = None
+    # Final export quality (backend/app/export.py: CODECS, QUALITY, SIZES, AUDIO_KBPS); drafts ignore them.
+    codec: str | None = None
+    quality: str | None = None
+    size: str | None = None
+    ten_bit: bool | None = None
+    sharpen: bool | None = None
+    audio_kbps: int | None = None
 
 
 @router.get("/api/projects/{project_id}/exports")

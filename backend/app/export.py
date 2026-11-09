@@ -28,6 +28,52 @@ DRAFT = {"video": {"codec": "libx264", "preset": "veryfast", "crf": 28, "profile
                    "threads": 8},
          "audio": {"codec": "aac", "bitrate": "128k", "rate": 48000, "channels": 2}}
 LOUDNESS = {"I": -14, "TP": -1.5, "LRA": 11}
+
+# Final-export quality choices. The defaults (H.264, standard, the project's size, 192 kbps) are exactly ENCODE, so
+# such an export can still be joined without re-encoding and older manifests rebuild the same.
+CODECS = {"h264": {"codec": "libx264", "profile": "high"}, "h265": {"codec": "libx265", "profile": "main"}}
+QUALITY = {  # (crf, preset): lower crf is better and bigger; slower presets pack the same quality into fewer bytes
+    "h264": {"small": (23, "medium"), "standard": (18, "medium"), "high": (16, "slow"), "best": (14, "slower")},
+    "h265": {"small": (26, "medium"), "standard": (21, "medium"), "high": (19, "slow"), "best": (17, "slower")},
+}
+SIZES = {"native": None, "720": 720, "1080": 1080, "1440": 1440, "2160": 2160}  # the short side, in pixels
+AUDIO_KBPS = (128, 192, 256, 320)
+SHARPEN = "unsharp=5:5:0.45:5:5:0"
+
+
+def encode_options(options: dict) -> tuple[dict, dict]:
+    """(encode, picture) for a final export from the owner's choices; ExportError for a bad one."""
+    codec = options.get("codec") or "h264"
+    quality = options.get("quality") or "standard"
+    size = str(options.get("size") or "native")
+    kbps = int(options.get("audio_kbps") or 192)
+    ten_bit = bool(options.get("ten_bit"))
+    if codec not in CODECS:
+        raise ExportError(f"codec must be one of {', '.join(CODECS)}")
+    if quality not in QUALITY[codec]:
+        raise ExportError(f"quality must be one of {', '.join(QUALITY[codec])}")
+    if size not in SIZES:
+        raise ExportError(f"size must be one of {', '.join(SIZES)}")
+    if kbps not in AUDIO_KBPS:
+        raise ExportError(f"audio_kbps must be one of {', '.join(map(str, AUDIO_KBPS))}")
+    if ten_bit and codec != "h265":
+        raise ExportError("10-bit color needs H.265 (10-bit H.264 plays almost nowhere)")
+    crf, preset = QUALITY[codec][quality]
+    video = {**CODECS[codec], "preset": preset, "crf": crf, "pix_fmt": "yuv420p10le" if ten_bit else "yuv420p",
+             "threads": 8}
+    if ten_bit:
+        video["profile"] = "main10"
+    encode = {"video": video, "audio": {**ENCODE["audio"], "bitrate": f"{kbps}k"}}
+    picture = {"size": size, "sharpen": bool(options.get("sharpen")), "quality": quality, "codec": codec}
+    return encode, picture
+
+
+def sized(W: int, H: int, short: int | None) -> tuple[int, int]:
+    """The film's size with its short side at `short` (keeping the aspect), or as it is."""
+    if not short:
+        return W, H
+    k = short / min(W, H)
+    return _even(W * k), _even(H * k)
 ACTIVE = ("queued", "running")
 
 
@@ -72,8 +118,10 @@ async def stream_info(path: Path) -> dict:
 def copy_possible(m: dict) -> bool:
     """Join without re-encoding only when nothing needs a filter: untrimmed cuts of identical streams."""
     clips = m["segments"]
+    pic = m.get("picture") or {}
     if (not clips or any(s["kind"] != "clip" for s in clips) or m["music"] or m["loudness"]
-            or (m["captions"] and m["burn_captions"])):
+            or (m["captions"] and m["burn_captions"]) or m["encode"] != ENCODE
+            or pic.get("size", "native") != "native" or pic.get("sharpen")):
         return False
     first = clips[0]["streams"]
     return all(s["transition"] == "cut" and s["in"] == 0 and s["out"] == s["src"]["frames"] and not s["mute"]
@@ -86,6 +134,8 @@ def build_command(m: dict, media_dir: Path, library_root: Path, workdir: Path, o
     With measure=True it is the loudness pass: same graph, loudnorm only measures, nothing is written."""
     fps, W, H = m["fps"], m["width"], m["height"]
     enc = m["encode"]
+    pic = m.get("picture") or {}
+    pf = enc["video"]["pix_fmt"]  # 10-bit all the way through, so fades and scaling don't band before the encode
     args = ["ffmpeg", "-y", "-v", "info" if measure else "error", "-nostdin", "-progress", "pipe:1", "-nostats"]
     graph, n_in = [], 0
     vlabels, alabels, durs = [], [], []
@@ -97,9 +147,12 @@ def build_command(m: dict, media_dir: Path, library_root: Path, workdir: Path, o
             i = n_in
             n_in += 1
             sfps = seg["src"]["fps"] or fps
+            # An export at another size than the project's scales with lanczos (sharper than the default bicubic).
+            flags = ":flags=lanczos" if pic.get("size", "native") != "native" else ""
+            sharpen = f"{SHARPEN}," if pic.get("sharpen") else ""
             graph.append(f"[{i}:v]trim=start_frame={seg['in']}:end_frame={seg['out']},setpts=PTS-STARTPTS,fps={fps},"
-                         f"scale={W}:{H}:force_original_aspect_ratio=decrease,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,"
-                         f"setsar=1,format=yuv420p,settb=1/{fps}[v{k}]")
+                         f"scale={W}:{H}:force_original_aspect_ratio=decrease{flags},{sharpen}"
+                         f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,format={pf},settb=1/{fps}[v{k}]")
             if seg["src"]["has_audio"] and not seg["mute"]:
                 graph.append(f"[{i}:a]atrim=start={seg['in'] / sfps:.6f}:end={seg['out'] / sfps:.6f},asetpts=PTS-STARTPTS,"
                              f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume={seg['gain_db']}dB,"
@@ -109,7 +162,7 @@ def build_command(m: dict, media_dir: Path, library_root: Path, workdir: Path, o
         else:  # title card: text on black
             tf = workdir / f"title_{k}.txt"
             tf.write_text(seg["text"], encoding="utf-8")
-            graph.append(f"color=c=black:s={W}x{H}:r={fps}:d={d:.6f},format=yuv420p,"
+            graph.append(f"color=c=black:s={W}x{H}:r={fps}:d={d:.6f},format={pf},"
                          f"{_drawtext(tf, seg['text_position'], H, size=0.07)},setsar=1,settb=1/{fps}[v{k}]")
             graph.append(f"anullsrc=r=48000:cl=stereo,atrim=duration={d:.6f},aformat=sample_fmts=fltp[a{k}]")
         vlabels.append(f"v{k}")
@@ -196,6 +249,8 @@ def build_command(m: dict, media_dir: Path, library_root: Path, workdir: Path, o
     args += ["-filter_complex", ";".join(graph), "-map", f"[{vout}]", "-map", f"[{aout}]", "-t", f"{total:.6f}",
              "-c:v", v["codec"], "-preset", v["preset"], "-crf", str(v["crf"]), "-profile:v", v["profile"],
              "-pix_fmt", v["pix_fmt"], "-threads", str(v["threads"]), "-r", str(fps),
+             # H.265: quiet logs, and the hvc1 tag Apple players need to open it.
+             *(["-x265-params", "log-level=error", "-tag:v", "hvc1"] if v["codec"] == "libx265" else []),
              "-c:a", a["codec"], "-b:a", a["bitrate"], "-ar", str(a["rate"]), "-ac", str(a["channels"]),
              "-movflags", "+faststart", "-map_metadata", "-1", "-fflags", "+bitexact",
              "-flags:v", "+bitexact", "-flags:a", "+bitexact", "-f", "mp4", str(out)]
@@ -241,8 +296,11 @@ class Exporter:
             raise ExportError("the edit has no clips yet: render shots (and pick takes) first")
         doc = tl["doc"]
         W, H = tl["width"], tl["height"]
+        encode, picture = (DRAFT, {}) if kind == "draft" else encode_options(options)
         if kind == "draft":
             W, H = _even(W * 540 / H), 540
+        else:
+            W, H = sized(W, H, SIZES[picture["size"]])
         segments = []
         for s in tl["segments"]:
             if s["kind"] == "clip":
@@ -263,7 +321,8 @@ class Exporter:
              "burn_captions": bool(options.get("burn_captions", True)) and bool(captions),
              "srt": bool(options.get("srt", False)) and bool(captions),
              "loudness": bool(options.get("loudness", doc["settings"]["loudness"])), "loudness_target": LOUDNESS,
-             "encode": DRAFT if kind == "draft" else ENCODE, "ffmpeg": await ffmpeg_version(), "created_at": now()}
+             "encode": encode, "ffmpeg": await ffmpeg_version(), "created_at": now(),
+             **({"picture": picture} if picture else {})}
         m["mode"] = "copy" if kind == "final" and copy_possible(m) else "encode"
         if m["mode"] == "copy":
             v = segments[0]["streams"]["video"]
@@ -319,7 +378,11 @@ class Exporter:
                         "clips": sum(1 for s in m["segments"] if s["kind"] == "clip"),
                         "titles": sum(1 for s in m["segments"] if s["kind"] == "title"),
                         "music": len(m["music"]), "captions": len(m["captions"]), "burn_captions": m["burn_captions"],
-                        "loudness": m["loudness"], "mode": m["mode"]}
+                        "loudness": m["loudness"], "mode": m["mode"],
+                        "codec": (m.get("picture") or {}).get("codec", "h264"),
+                        "quality": (m.get("picture") or {}).get("quality", "standard" if m["kind"] == "final" else "draft"),
+                        "ten_bit": m["encode"]["video"]["pix_fmt"].endswith("10le"),
+                        "audio": m["encode"]["audio"]["bitrate"]}
         return e
 
     async def for_project(self, project_id: str) -> list[dict]:
