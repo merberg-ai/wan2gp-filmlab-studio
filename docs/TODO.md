@@ -22,71 +22,71 @@
 
 **Status:** Audit completed 2026-11-10. This is a **plan only**: no installation, update, service, or application scripts have been changed or tested on the owner's OMEN for this task.
 
-**Repository/branch rule:** \`merberg-ai/wan2gp-filmlab-studio\`. All DEV-01 development commits must target **\`dev\`**. **Never merge, push changes to, or otherwise modify \`main\` without the owner's explicit instruction.** Switching the *running installation* between already-existing code versions is a separate operation and must never implicitly merge branches.
+**Repository/branch rule:** `merberg-ai/wan2gp-filmlab-studio`. All DEV-01 development commits must target **`dev`**. **Never merge, push changes to, or otherwise modify `main` without the owner's explicit instruction.** Switching the *running installation* between already-existing code versions is a separate operation and must never implicitly merge branches.
 
 ### Goal and existing installation
 
-The owner already has a working FilmLab Studio installation on a Windows 11 OMEN, using a **FilmLab WSL2 distro** and a **Git checkout stored on Windows**. The WSL backend executes source from that checkout; the built React cockpit is copied to \`~/filmlab/app/static\`. Persistent state is stored outside the repository (SQLite database, media/library assets, backups, Python venv, OpenClaw agent workspace, environment files and secrets). WanGP and Ollama run separately on Windows.
+The owner already has a working FilmLab Studio installation on a Windows 11 OMEN, using a **FilmLab WSL2 distro** and a **Git checkout stored on Windows**. The WSL backend executes source from that checkout; the built React cockpit is copied to `~/filmlab/app/static`. Persistent state is stored outside the repository (SQLite database, media/library assets, backups, Python venv, OpenClaw agent workspace, environment files and secrets). WanGP and Ollama run separately on Windows.
 
-The development workflow should let the owner select \`dev\`, obtain new GitHub commits, deploy changes and restart the backend with **one predictable PowerShell command** instead of manually coordinating Git, Windows and WSL. Preserve the existing installation, projects, assets, credentials, trusted LAN HTTPS setup, service ports and optional autostart.
+The development workflow should let the owner select `dev`, obtain new GitHub commits, deploy changes and restart the backend with **one predictable PowerShell command** instead of manually coordinating Git, Windows and WSL. Preserve the existing installation, projects, assets, credentials, trusted LAN HTTPS setup, service ports and optional autostart.
 
 **Existing relevant files and behavior (confirmed by repository inspection):**
 
-- \`scripts/filmlabctl.ps1\`: Windows-side start/stop/status/restart/restart-backend/logs, WSL keep-alive, WanGP Windows helper; distro name read from \`%LOCALAPPDATA%\FilmLab\config.json\`.
-- \`scripts/filmlabctl.sh\`: transient user-systemd backend and OpenClaw gateway units in the FilmLab distro. Backend serves port 19300; gateway uses port 19189.
-- \`scripts/update.sh\`: checks Git state and some jobs, SQLite backup, Git checkout, \`uv sync\`, frontend build, Director workspace install and backend restart; **does not fetch Git**.
-- \`scripts/rollback.sh\`: returns to recorded prior commit and can restore pre-update SQLite after a migration; must not silently discard FilmLab work made since deployment.
-- \`scripts/build-frontend.sh\`: copies frontend to a WSL build directory and installs into the shared static directory; currently removes the previous static build before copying the new one.
-- \`scripts/install/Setup-FilmLab.ps1\`, \`scripts/install/distro-user.sh\`, \`scripts/install/f7-startup-task.ps1\`: original installer, WSL bootstrap and optional Windows logon task.
-- \`docs/installation.md\` and \`docs/running.md\`: current manual update instructions target \`origin/main\` and must be revised for dev deployments.
+- `scripts/filmlabctl.ps1`: Windows-side start/stop/status/restart/restart-backend/logs, WSL keep-alive, WanGP Windows helper; distro name read from `%LOCALAPPDATA%\FilmLab\config.json`.
+- `scripts/filmlabctl.sh`: transient user-systemd backend and OpenClaw gateway units in the FilmLab distro. Backend serves port 19300; gateway uses port 19189.
+- `scripts/update.sh`: checks Git state and some jobs, SQLite backup, Git checkout, `uv sync`, frontend build, Director workspace install and backend restart; **does not fetch Git**.
+- `scripts/rollback.sh`: returns to recorded prior commit and can restore pre-update SQLite after a migration; must not silently discard FilmLab work made since deployment.
+- `scripts/build-frontend.sh`: copies frontend to a WSL build directory and installs into the shared static directory; currently removes the previous static build before copying the new one.
+- `scripts/install/Setup-FilmLab.ps1`, `scripts/install/distro-user.sh`, `scripts/install/f7-startup-task.ps1`: original installer, WSL bootstrap and optional Windows logon task.
+- `docs/installation.md` and `docs/running.md`: current manual update instructions target `origin/main` and must be revised for dev deployments.
 
 **Risks identified during audit:**
 
-1. Checkout of \`origin/dev\` directly can leave the repo on a **detached HEAD**, making repeated branch work awkward.
+1. Checkout of `origin/dev` directly can leave the repo on a **detached HEAD**, making repeated branch work awkward.
 2. Source code is switched before the old backend is stopped, risking a partially changed running installation.
 3. The updater guards some jobs, but lacks a comprehensive Director/planning and active-work preflight.
-4. Dependency or build failures may leave a new checkout without a healthy deployed cockpit/backend; the health check only prints an HTTP status and does not enforce success. \`/api/health\` requires login, so **401 is not a sufficient positive health check**.
+4. Dependency or build failures may leave a new checkout without a healthy deployed cockpit/backend; the health check only prints an HTTP status and does not enforce success. `/api/health` requires login, so **401 is not a sufficient positive health check**.
 5. Database migrations are not automatically reversible; restoring a database on ordinary branch switching can lose new projects/edits. Rollback needs a clearly separated, explicit data-recovery action.
 6. Checkout, built frontend, backend process and installation metadata can disagree after an interrupted update. The status command should expose this.
 
 ### Proposed interface
 
-Create **\`scripts/FilmLab-Dev.ps1\`** as the Windows entry point, delegating to hardened WSL scripts and using the distro configured at installation. Proposed command names (subject to implementation):
+Create **`scripts/FilmLab-Dev.ps1`** as the Windows entry point, delegating to hardened WSL scripts and using the distro configured at installation. Proposed command names (subject to implementation):
 
 | Command | Intent |
 | --- | --- |
-| \`status\` | Show checkout branch/commit, deployed revision, dirty state, WSL/backend/gateway/host helper status, relevant job state and health |
-| \`switch dev\` | Preflight, fetch, create or check out local tracking branch \`dev\`, deploy it safely |
-| \`switch main\` | Opt-in return to the existing stable branch **without modifying or merging into \`main\`**; apply the same migration safeguards |
-| \`update\` | Fetch and fast-forward the currently selected branch, rebuild and restart; no force reset/rebase |
-| \`restart-backend\` | Restart only FastAPI, not OpenClaw gateway, WanGP, Ollama or unrelated WSL distros |
-| \`restart-all\` | Restart only FilmLab backend and Director gateway using existing lifecycle controls |
-| \`logs\` | Show backend or gateway logs using current service controller |
-| \`rollback\` | Return to the previous *code deployment* only when safe; database restore is a separate explicit, confirmed recovery |
-| \`-DryRun\` | Show intended branch movement, job checks, affected services and rebuild steps without changes |
+| `status` | Show checkout branch/commit, deployed revision, dirty state, WSL/backend/gateway/host helper status, relevant job state and health |
+| `switch dev` | Preflight, fetch, create or check out local tracking branch `dev`, deploy it safely |
+| `switch main` | Opt-in return to the existing stable branch **without modifying or merging into `main`**; apply the same migration safeguards |
+| `update` | Fetch and fast-forward the currently selected branch, rebuild and restart; no force reset/rebase |
+| `restart-backend` | Restart only FastAPI, not OpenClaw gateway, WanGP, Ollama or unrelated WSL distros |
+| `restart-all` | Restart only FilmLab backend and Director gateway using existing lifecycle controls |
+| `logs` | Show backend or gateway logs using current service controller |
+| `rollback` | Return to the previous *code deployment* only when safe; database restore is a separate explicit, confirmed recovery |
+| `-DryRun` | Show intended branch movement, job checks, affected services and rebuild steps without changes |
 
-Keep \`scripts/filmlabctl.ps1\` backward-compatible; do not repurpose the installer as the day-to-day update command.
+Keep `scripts/filmlabctl.ps1` backward-compatible; do not repurpose the installer as the day-to-day update command.
 
 ### Implementation checklist
 
 - [ ] **DEV-01.1 — State and preflight:** Determine installed checkout from the controller's path, distro from saved Windows config, currently running services, active source/deployed commit and selected branch. Detect uncommitted and untracked changes; refuse destructive checkout. Check for in-progress renders, images, exports, batches and Director planning, including valid handling of a missing/uninitialized database. Distinguish safe idle from unknown state and fail closed when unable to check.
-- [ ] **DEV-01.2 — Branch-aware Git workflow:** \`git fetch origin\`; create \`dev\` tracking \`origin/dev\` if necessary; use a **local named branch** rather than checking out a remote ref directly; fast-forward only; refuse divergence and dirty worktree; never \`push\`, merge, rebase or force-reset \`main\`. Avoid fetching or updating on backend-only restarts.
-- [ ] **DEV-01.3 — Safe deployment:** Take a consistent SQLite backup and record prior deployment; quiesce/stop backend before changing checkout; sync locked Python deps via \`uv sync --frozen\`; build React from lockfile; stage and atomically publish cockpit assets so a failed build does not wipe the previously working UI; install Director workspace instructions from the selected commit only after checks. Preserve all install-time environment and host-helper configuration.
+- [ ] **DEV-01.2 — Branch-aware Git workflow:** `git fetch origin`; create `dev` tracking `origin/dev` if necessary; use a **local named branch** rather than checking out a remote ref directly; fast-forward only; refuse divergence and dirty worktree; never `push`, merge, rebase or force-reset `main`. Avoid fetching or updating on backend-only restarts.
+- [ ] **DEV-01.3 — Safe deployment:** Take a consistent SQLite backup and record prior deployment; quiesce/stop backend before changing checkout; sync locked Python deps via `uv sync --frozen`; build React from lockfile; stage and atomically publish cockpit assets so a failed build does not wipe the previously working UI; install Director workspace instructions from the selected commit only after checks. Preserve all install-time environment and host-helper configuration.
 - [ ] **DEV-01.4 — Controlled restart and verification:** Start/restart the appropriate FilmLab systemd user units; leave WanGP/Ollama/other distros alone. Verify process/unit state, listener, authenticated or otherwise trustworthy API readiness, frontend response and selected deployed revision. Handle both HTTP localhost and configured HTTPS/LAN. Report failures with actionable logs and nonzero exit status.
-- [ ] **DEV-01.5 — Failure handling and rollback:** Record **successful** deployments with previous/new commit, branch, backup path and migration state. Define safe recovery after failures at fetch, checkout, \`uv sync\`, frontend build, workspace install, backend start and health verification. Code rollback must not silently restore older SQLite or discard post-update media/projects. Warn/refuse when schema incompatibility cannot be established; offer explicitly confirmed database recovery with current-state preservation.
-- [ ] **DEV-01.6 — Windows integration:** Test PowerShell quoting and paths (including spaces), Windows-to-WSL conversion, distro configuration, keep-alive behavior, exit-code propagation and current optional logon task. Ensure a normal backend restart does not kill the host helper or WanGP and that nothing calls \`wsl --shutdown\`.
-- [ ] **DEV-01.7 — Documentation:** Update \`docs/installation.md\`, \`docs/running.md\` and the command reference with a concise **first switch from running \`main\` to \`dev\`**, routine \`dev\` updates, backend-only restart, status/logs, return to stable and disaster recovery. Explain difference between Git branch and deployed runtime. Preserve existing full-install documentation.
+- [ ] **DEV-01.5 — Failure handling and rollback:** Record **successful** deployments with previous/new commit, branch, backup path and migration state. Define safe recovery after failures at fetch, checkout, `uv sync`, frontend build, workspace install, backend start and health verification. Code rollback must not silently restore older SQLite or discard post-update media/projects. Warn/refuse when schema incompatibility cannot be established; offer explicitly confirmed database recovery with current-state preservation.
+- [ ] **DEV-01.6 — Windows integration:** Test PowerShell quoting and paths (including spaces), Windows-to-WSL conversion, distro configuration, keep-alive behavior, exit-code propagation and current optional logon task. Ensure a normal backend restart does not kill the host helper or WanGP and that nothing calls `wsl --shutdown`.
+- [ ] **DEV-01.7 — Documentation:** Update `docs/installation.md`, `docs/running.md` and the command reference with a concise **first switch from running `main` to `dev`**, routine `dev` updates, backend-only restart, status/logs, return to stable and disaster recovery. Explain difference between Git branch and deployed runtime. Preserve existing full-install documentation.
 - [ ] **DEV-01.8 — Tests and acceptance:** Add automated/mockable checks where practical for branch creation, clean/dirty/diverged worktree, service/job gate, failed download/build, stopped service, corrupt/missing DB, auth-protected health endpoint, HTTPS/LAN and migration mismatch. Conduct a short, **owner-run** OMEN smoke test before declaring real-host success; do not claim local commands were executed by the GitHub connector.
 
 ### Acceptance criteria
 
-- [ ] From the existing healthy OMEN installation, a documented single command can switch to and deploy \`dev\` without reinstalling FilmLab or losing existing projects/media.
-- [ ] Subsequent \`dev\` updates require one command and produce a clear success/failure status showing deployed SHA and branch.
-- [ ] \`restart-backend\` works independently of updates and does not restart the Director gateway, WanGP or Ollama.
+- [ ] From the existing healthy OMEN installation, a documented single command can switch to and deploy `dev` without reinstalling FilmLab or losing existing projects/media.
+- [ ] Subsequent `dev` updates require one command and produce a clear success/failure status showing deployed SHA and branch.
+- [ ] `restart-backend` works independently of updates and does not restart the Director gateway, WanGP or Ollama.
 - [ ] In-progress work or a dirty/diverged checkout prevents unsafe deployment; a failed deployment leaves an understandable, recoverable state.
 - [ ] Startup, localhost and configured phone/LAN HTTPS continue working, and the existing Windows autostart behavior remains intact.
 - [ ] Migrations and code rollback cannot silently erase post-update work. Data restore is separately backed up and explicitly authorized.
-- [ ] **No changes to \`main\`** (no merge, push, or commit); all implementation work remains on \`dev\`.
+- [ ] **No changes to `main`** (no merge, push, or commit); all implementation work remains on `dev`.
 
 ### Boundaries / non-goals
 
