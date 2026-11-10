@@ -82,8 +82,10 @@ def clean_sound(value, errors: list | None = None) -> dict | None:
         delivery = _str(ln.get("delivery"), 120, f"sound.lines[{i}].delivery", errors)
         if directions:
             delivery = ", ".join(x for x in (delivery, directions) if x)[:120]
-        lines.append({"speaker": _str(ln.get("speaker") or ln.get("who"), 80, f"sound.lines[{i}].speaker", errors,
-                                      required=True),
+        # "{Anthony_PJ}": the director names assets in braces in prompts, and did so here too (live: the speaker
+        # then matched no reference, a warning no prompt fix could clear)
+        who = str(ln.get("speaker") or ln.get("who") or "").strip().strip("{}").strip()
+        lines.append({"speaker": _str(who, 80, f"sound.lines[{i}].speaker", errors, required=True),
                       "text": text,
                       "delivery": delivery,
                       "language": lang.capitalize() if lang else ""})

@@ -69,7 +69,7 @@ export function Storyboard({ project, templates, selected, onSelect, act, timeli
   const total = project.shots.reduce((n, s) => n + (s.frames - 1) / 24, 0);
   const issues = useShotIssues(project);
   const fixable = project.shots.filter((s) => !s.locked && ["draft", "failed", "pending_approval", "ready"].includes(s.status)
-    && issues[s.id]?.some((i) => i.level === "warn")).map((s) => s.id);
+    && issues[s.id]?.some((i) => i.level === "warn" && i.kind !== "speaker")).map((s) => s.id);
   const lastJob = (id: string) => [...project.jobs].reverse().find((j) => j.shot_id === id);
 
   const drop = (e: DragEvent, sceneKey: string, beforeShot?: Shot) => {

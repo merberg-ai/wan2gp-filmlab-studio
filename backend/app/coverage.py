@@ -5,7 +5,8 @@ straight to the escape, and the battle the brief asked for between them was neve
 every scene" doesn't help; small questions with a forced JSON answer do (as in castpass.py):
 
 1. once: "list what this brief says must happen, in story order" (the beats);
-2. per beat: "which planned shot comes closest to showing it?", then, about that one shot, "does it show it?".
+2. per beat: does one shot say it in the brief's own words (overlap, no model)? If none does: "which planned shot
+   comes closest to showing it?", then, about that one shot, "does it show it?".
 
 A beat no shot shows is a gap. Neighbouring gaps are asked for together, each with the shot it belongs after (the
 last shot before the next beat that is shown, at a scene's end when there is one), so the chat can ask the director
@@ -13,12 +14,14 @@ for just that and put the new shots in film order. Nothing is checked for a musi
 model that isn't on Ollama, or when a question fails: the plan then stands as written."""
 
 import logging
+import re
 
-from . import castpass, shots
+from . import castpass, shots, sound
 
 log = logging.getLogger("filmlab.coverage")
 MAX_BEATS, MAX_GAPS = 12, 3
 MIN_BRIEF = 60  # a one-line brief is one beat: nothing to compare
+WORDED = 0.45  # the share of a beat's telling words in one shot from which the shot shows it (see overlap)
 
 
 def _beats_schema() -> dict:
@@ -36,13 +39,61 @@ def _judge_schema() -> dict:
     return {"type": "object", "required": ["answer"], "properties": {"answer": {"type": "string", "enum": ["yes", "no"]}}}
 
 
-def beats_question(brief: str) -> str:
+def beats_question(brief: str, most: int = MAX_BEATS) -> str:
+    """most: no more beats than the plan has shots. Finer than that, a beat is a detail inside a shot (live: a
+    4-shot brief became 9 beats, and "the cat glares" was called skipped beside the shot that shows it)."""
     return "\n".join([
         "The brief of a short film:", f"“{brief}”",
-        "List what the film must show, in story order, as separate beats: one short sentence each, in the brief's "
-        f"own words, one beat per event (an arrival, a fight and an escape are three beats). At most {MAX_BEATS}. "
+        "List what the film must show, in story order, as separate beats: one sentence each, in the brief's own "
+        f"words, one beat per event (an arrival, a fight and an escape are three beats). At most {most} beats; when "
+        "the brief lists its own shots, one beat per listed shot, saying all that happens in it. "
         "Only events the brief names: leave out its notes on style, length, camera, music and cast, and add nothing.",
     ])
+
+
+def picture(shot: dict, limit: int) -> str:
+    """The shot's prompt as the brief would say it: its references by name, not <Picture N> (the brief says "the cat
+    glares at Anthony", the prompt "<Picture 3> glares at <Picture 2>": live, the model then found neither), and
+    what is said in it, which is in the shot's sound and never in its prompt."""
+    text = " ".join(str(shot.get("prompt") or "").split())
+    for n, name in sorted((shot.get("_refs") or {}).items(), reverse=True):
+        text = text.replace(f"<Picture {n}>", name)
+    said = "; ".join(f"{ln['speaker']} says “{ln['text']}”" for ln in (sound.load(shot.get("sound")) or {}).get("lines", []))
+    return f"[picture: {text[:limit]}]" + (f" [spoken: {said[:200]}]" if said else "")
+
+
+_STOP = set("the and with that this then they them their his her him its from into onto over under toward towards "
+            "while are was were has have had not but for out off one two both each all who what when where which "
+            "still just very also than amid amidst between through across behind before after".split())
+
+
+def _words(text: str) -> set[str]:
+    return {w[:5] for w in re.findall(r"[a-z]+", str(text).lower()) if len(w) >= 3 and w not in _STOP}
+
+
+def _said(text: str) -> list[str]:
+    """What is said in a text, each quoted line as bare lowercase words."""
+    return [" ".join(re.findall(r"[a-z']+", q.lower())) for q in re.findall(r"[\"“]([^\"”]{3,})[\"”]", str(text))]
+
+
+def shot_words(shot: dict) -> set[str]:
+    return _words(f"{shot.get('title')} {shot.get('idea') or ''} {picture(shot, 4000)}")
+
+
+def overlap(beat: str, shot: dict, rows: list[dict]) -> float:
+    """How much of the beat is in the shot's own words (0-1): the share of the beat's telling words found in the
+    shot. Words most shots share (the cast's names, the place) tell nothing and are left out; a beat with fewer
+    than three telling words can't be judged this way (0). A director plans from the brief in the brief's words,
+    so a high share is a surer sign than the small model's verdict (live: it said no to a shot quoting the beat)."""
+    lines = [" ".join(re.findall(r"[a-z']+", ln["text"].lower()))
+             for ln in (sound.load(shot.get("sound")) or {}).get("lines", [])]
+    if any(q and q in lines for q in _said(beat)):
+        return 1.0  # the beat is a line someone says, and it is said in this shot
+    sets = [shot_words(r) for r in rows]
+    most = 0.6 * len(sets) if len(sets) >= 6 else len(sets) - 0.5  # a short film: only what every shot has
+    common = {w for w in set().union(*sets) if sum(w in s for s in sets) > most} if len(sets) >= 2 else set()
+    want = _words(beat) - common
+    return len(want & shot_words(shot)) / len(want) if len(want) >= 3 else 0.0
 
 
 def shot_lines(rows: list[dict], scenes: dict) -> list[str]:
@@ -53,8 +104,7 @@ def shot_lines(rows: list[dict], scenes: dict) -> list[str]:
             sc = scenes.get(scene_id)
             lines.append(f"Scene “{sc['title']}”:" if sc else "No scene:")
         idea = " ".join(str(r.get("idea") or "").split())[:160]
-        picture = " ".join(str(r.get("prompt") or "").split())[:220]
-        lines.append(f"{r['position']}. “{r['title']}”{': ' + idea if idea else ''} [picture: {picture}]")
+        lines.append(f"{r['position']}. “{r['title']}”{': ' + idea if idea else ''} {picture(r, 260)}")
     return lines
 
 
@@ -71,8 +121,7 @@ def closest_question(beat: str, lines: list[str]) -> str:
 def judge_question(beat: str, shot: dict) -> str:
     return "\n".join([
         "One event from a film's brief:", f"“{beat}”", "One planned shot of the film:",
-        f"“{shot['title']}”: {' '.join(str(shot.get('idea') or '').split())} "
-        f"[picture: {' '.join(str(shot.get('prompt') or '').split())[:400]}]",
+        f"“{shot['title']}”: {' '.join(str(shot.get('idea') or '').split())} {picture(shot, 500)}",
         "Does this shot show that event, or a part of it, happening on screen? no: it shows something else, e.g. "
         "what happens before or after it.",
     ])
@@ -121,9 +170,12 @@ async def check(studio, project_id: str, model: str | None) -> dict | None:
     rows = [await shots.get_shot(studio.db, sid) for sid in await studio.storyboard.order(project_id)]
     if len(rows) < 2:
         return None
+    for r in rows:
+        r["_refs"] = {x["position"]: x["asset_name"] for x in await studio.library.shot_refs(r["id"])}
     url = (await studio.health.settings())["ollama_url"]
     transport = getattr(studio.gpu_share, "_transport", None)
-    answer = await castpass.ask(url, model, beats_question(project["brief"].strip()), _beats_schema(), transport)
+    answer = await castpass.ask(url, model, beats_question(project["brief"].strip(), max(3, min(MAX_BEATS, len(rows)))),
+                                _beats_schema(), transport)
     beats = list(dict.fromkeys(" ".join(str(b).split())[:300] for b in (answer or {}).get("beats") or []
                                if str(b).strip()))[:MAX_BEATS]
     if len(beats) < 2:
@@ -133,9 +185,15 @@ async def check(studio, project_id: str, model: str | None) -> dict | None:
     by_pos = {r["position"]: r for r in rows}
     covered = []
     for beat in beats:
-        # Asked for every shot that shows a beat, with a yes/no beside it, the 9B model contradicted itself (live:
-        # three planned parts called missing). Picking the closest shot, then judging that one shot alone, was right
-        # on every beat of the same plan.
+        # First the shots' own words: a director plans from the brief in its words, and on two real plans every
+        # planned beat shared half or more of its telling words with one shot (0.50-1.0) and every skipped one
+        # under 0.4. Only a beat no shot words like that goes to the model, and it is a gap only if the model
+        # agrees: asked for every shot that shows a beat, the 9B model contradicted itself; picking the closest
+        # shot, then judging that one shot alone, does better (though it said no to a shot quoting the beat).
+        best = max(rows, key=lambda r: overlap(beat, r, rows))
+        if overlap(beat, best, rows) >= WORDED:
+            covered.append([best["position"]])
+            continue
         pick = await castpass.ask(url, model, closest_question(beat, lines), _closest_schema(numbers), transport)
         shot = by_pos.get((pick or {}).get("closest_shot"))
         if not shot:

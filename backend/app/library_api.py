@@ -576,7 +576,8 @@ async def fix_prompts(project_id: str, body: FixPromptsIn, request: Request):
     project = await s.db.fetchone("SELECT * FROM projects WHERE id = ? AND deleted_at IS NULL", (project_id,))
     if not project:
         raise HTTPException(404, "no such project")
-    issues = await _project_issues(s, project)
+    issues = {sid: [i for i in found if i.get("kind") != "speaker"]  # who speaks is the shot's Sound and references
+              for sid, found in (await _project_issues(s, project)).items()}
     rows = await s.db.fetchall("SELECT * FROM shots WHERE project_id = ? AND deleted_at IS NULL ORDER BY position",
                                (project_id,))
     todo = [r for r in rows if r["id"] in issues and not r["locked"] and r["status"] in shots.EDITABLE

@@ -17,6 +17,7 @@ from ..db import Database, new_id, now
 from ..events import EventBus
 from ..storyboard import PLAN_OVERRUN, PLAN_SLACK_S
 from .direct import ASK as DIRECT_ASK
+from .direct import GAP_ASK as DIRECT_GAP_ASK
 from .direct import REFUSED as DIRECT_REFUSED
 from .direct import SAVED as DIRECT_SAVED
 from .direct import DirectError, DirectPlanner
@@ -219,6 +220,15 @@ class DirectorChat:
 
         messages = opening(text)
 
+        async def gap_turn(ask: str):
+            """(conversation, messages) that ask the director for a part of the brief the plan skips."""
+            if not fresh_parts:
+                return conversation, [{"role": "user", "content": ask + " When it's saved, reply with one line saying "
+                                                                        "what you added."}]
+            return f"{base_conversation}:gap{cover['asked']}", opening(await plan_brief(
+                self.tools.studio, await self.db.fetchone("SELECT * FROM projects WHERE id = ?", (project_id,)),
+                replace=False, gap=ask))
+
         async def on_delta(chunk):
             self.bus.publish_ephemeral("chat.delta", {"turn_id": turn_id, "text": chunk}, project_id)
 
@@ -247,13 +257,7 @@ class DirectorChat:
                             # between an entrance and an escape was skipped.) Each gap is asked for on its own.
                             ask = await self._cover(project_id, turn_id, cover, runs_on, n < rounds - 1)
                             if ask:
-                                if fresh_parts:
-                                    conversation = f"{base_conversation}:gap{cover['asked']}"
-                                    messages = opening(await plan_brief(self.tools.studio, await self.db.fetchone(
-                                        "SELECT * FROM projects WHERE id = ?", (project_id,)), replace=False, gap=ask))
-                                else:
-                                    messages = [{"role": "user", "content": ask + " When it's saved, reply with one "
-                                                 "line saying what you added."}]
+                                conversation, messages = await gap_turn(ask)
                                 continue
                             if done or cover.get("checked"):
                                 return  # "All planned" with nothing new to save is right when the brief is covered
@@ -308,6 +312,21 @@ class DirectorChat:
                 log.warning("director turn failed: %s", exc)
                 if EMPTY_REPLY not in str(exc):
                     await self._fail(project_id, turn_id, f"director unavailable: {exc}")
+                    return
+                if cover.get("filling"):
+                    # Empty while adding a skipped part of the brief: ask for just that part as JSON. (Live, this
+                    # went on to the whole-plan fallback below, which planned the film a second time.)
+                    try:
+                        await self._gap_direct(project_id, turn_id, cover["filling"]["ask"], notes, runs_on, succeeded)
+                    except Exception:  # noqa: BLE001 - the plan is saved; a gap that stays open is said in the chat
+                        log.exception("asking for a skipped part directly failed in %s", project_id)
+                    ask = await self._cover(project_id, turn_id, cover, runs_on, True)
+                    if not ask:
+                        return
+                    conversation, messages = await gap_turn(ask)
+                    continue
+                if cover.get("checked"):  # the plan is saved and checked: nothing is planned again after that
+                    await self._fail(project_id, turn_id, "The director's reply came back empty; the plan stays as saved.")
                     return
                 # A plan's reply that came back empty is usually a plan_storyboard call Ollama's tool-call parser
                 # dropped (gemma4 often), and asking again through OpenClaw mostly fails the same way: ask the model
@@ -518,9 +537,35 @@ class DirectorChat:
         if gap.get("after"):  # an earlier gap's shots may have moved it
             gap["after"] = await shots.get_shot(self.db, gap["after"]["id"])
         cover["asked"] += 1
-        cover["filling"] = {"gap": gap, "shots": set(await studio.storyboard.order(project_id)),
+        ask = gap_ask(gap, min(8.0, room - 1, 3.0 + 2 * len(gap["beats"])))
+        cover["filling"] = {"gap": gap, "ask": ask, "shots": set(await studio.storyboard.order(project_id)),
                             "scenes": {s["id"] for s in await studio.storyboard.scenes(project_id)}}
-        return gap_ask(gap, min(8.0, room - 1))
+        return ask
+
+    async def _gap_direct(self, project_id, turn_id, ask: str, notes: str, model: str | None, succeeded: set):
+        """The skipped part of the brief, asked of the model on Ollama as JSON (see direct.py) and saved through
+        plan_storyboard as usual. _cover then finds the new shots, or says that nothing was added."""
+        if not self.settings or not model or not str(model).startswith("ollama/"):
+            return
+        await self._note(project_id, turn_id, "The director's reply came back empty, so FilmLab is asking the model "
+                                              "for the skipped part directly.")
+        project = await self.db.fetchone("SELECT * FROM projects WHERE id = ?", (project_id,))
+        planner = DirectPlanner(model, self.settings.ollama_transport)
+        prompt = f"{await plan_brief(self.tools.studio, project, replace=False, gap=ask)}{notes}{DIRECT_GAP_ASK}"
+        for _ in range(3):
+            try:
+                answer = await planner.ask(prompt)
+            except (DirectError, httpx.HTTPError) as exc:
+                log.warning("direct gap plan failed: %s", exc)
+                return
+            plan = answer.get("plan") if isinstance(answer.get("plan"), dict) else None
+            if not plan or not plan.get("scenes"):
+                return
+            call = TurnResult("", [{"id": new_id()[:9], "name": "plan_storyboard", "arguments": json.dumps(plan)}])
+            out = json.loads((await self._run_tools(project_id, turn_id, call, succeeded))[-1]["content"])
+            if not failed(out):
+                return
+            prompt = DIRECT_REFUSED.format(errors=json.dumps(out.get("errors") or out["error"])[:4000])
 
     async def _run_tools(self, project_id, turn_id, result, succeeded: set | None = None) -> list[dict]:
         """Execute the turn's tool calls; return the follow-up messages for the Gateway."""

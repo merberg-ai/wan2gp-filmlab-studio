@@ -83,14 +83,17 @@ def test_a_part_of_the_brief_the_plan_skips_is_asked_for_and_put_in_film_order(m
     ask = next(r for r in h.gateway.requests if "skips this part of my brief" in r["messages"][0]["content"])
     text = ask["messages"][0]["content"]
     assert ask["user"].endswith(":gap1") and "My brief: “A soldier waits" in text and "Current storyboard:" in text
-    assert "right after shot 2 “Fog”" in text and "as ONE new scene" in text and "about 8 s" in text
+    assert "right after shot 2 “Fog”" in text and "as ONE new scene" in text and "about 5 s" in text
     assert "All planned" not in text and "Carry on from it" not in text
+    # "A soldier waits in the trench" is in shot 1's own words: the model is only asked about the other two beats
     questions = [b["messages"][0]["content"] for b in h.vision.shown_asked]
-    assert len(questions) == 3 and "1. “Hale waits”: Hale waits in the trench [picture: " in questions[0]
+    assert len(questions) == 2 and "1. “Hale waits”: Hale waits in the trench [picture: " in questions[0]
     assert all(b["model"] == "qwen3.5:9b" and b["format"]["properties"]["closest_shot"]["enum"] == [1, 2, 3]
                for b in h.vision.shown_asked)
     judged = [b["messages"][0]["content"] for b in h.vision.requests if list(b["format"]["properties"]) == ["answer"]]
-    assert "“A shell hits the trench”" in judged[1] and "“Hale waits”: Hale waits in the trench [picture: " in judged[1]
+    assert "“A shell hits the trench”" in judged[0] and "“Hale waits”: Hale waits in the trench [picture: " in judged[0]
+    beats_asked = next(b for b in h.vision.requests if "beats" in b["format"]["properties"])
+    assert "At most 3 beats" in beats_asked["messages"][0]["content"]  # never more beats than the plan has shots
     # Plan more on the covered storyboard: "All planned" with nothing new to save is right, not an error.
     _, chat, notes = planned(h, pid, replace=False)
     assert chat[-1]["role"] == "note" and chat[-1]["content"] == "Brief check: all 3 parts of your brief are in the storyboard."
@@ -137,3 +140,62 @@ def test_coverage_never_fails_a_plan_and_respects_the_target(make_harness):
     asked = len(h.vision.shown_asked)
     assert not h.c.portal.call(coverage.applies, h.studio, pid, "anthropic/some-model")
     assert h.c.portal.call(coverage.applies, h.studio, pid, "ollama/qwen3.5:9b") and len(h.vision.shown_asked) == asked
+
+
+def test_a_shot_in_the_briefs_own_words_shows_the_beat_whatever_the_model_says():
+    """Live (Spaghetti Cat): the model called "the cat slowly turns and glares" skipped beside the shot whose prompt
+    says exactly that (as <Picture 3> and <Picture 2>), and a spoken line skipped that is in the shot's Sound."""
+    cast = {1: "kitchen_1980s", 2: "Anthony_PJ", 3: "fat_grumpy_orange_cat"}
+    mk = lambda n, title, prompt, sound=None: {  # noqa: E731
+        "position": n, "scene_id": "s", "id": f"shot{n}", "title": title, "idea": "", "_refs": cast, "sound": sound,
+        "prompt": f"During the day in <Picture 1>, {prompt} Medium shot, warm indoor light."}
+    r = [mk(1, "The Setup", "<Picture 2> and <Picture 3> sit side by side at a dining table with a bowl of spaghetti."),
+         mk(2, "The Swat & Glare", "<Picture 2> swats the paw of <Picture 3> away. <Picture 3> slowly turns its head "
+                                   "toward <Picture 2> and gives a furious, unblinking glare."),
+         mk(3, "The Final Word", "<Picture 2> turns toward <Picture 3> with sauce dripping down his face.",
+            {"lines": [{"speaker": "{Anthony_PJ}", "text": "What the fuck?!"}]})]
+    glare = "fat_grumpy_orange_cat slowly turns toward Anthony_Pj and gives him a furious, unblinking glare."
+    assert coverage.overlap(glare, r[1], r) == 1.0 and coverage.overlap(glare, r[0], r) < 0.2
+    assert coverage.overlap('Anthony_Pj angrily exclaims, "What the fuck?!"', r[2], r) == 1.0
+    battle = "An explosive battle erupts between the heroes and the warlord amid sparks and energy blasts."
+    assert max(coverage.overlap(battle, x, r) for x in r) < coverage.WORDED
+    assert "fat_grumpy_orange_cat slowly turns its head toward Anthony_PJ" in coverage.picture(r[1], 500)
+    assert coverage.picture(r[2], 500).endswith("[spoken: Anthony_PJ says “What the fuck?!”]")
+
+
+def test_an_empty_reply_to_a_gap_ask_gets_only_that_part_as_json(make_harness):
+    """Live: the reply to "add the skipped part" came back empty, and the whole-plan fallback then planned the film a
+    second time on top of the first. Now the model is asked for just that part, and nothing else is planned."""
+    h = make_harness().login()
+    pid = local_project(h)
+    h.vision.beats, h.gateway.empty_gap = BEATS, True
+    h.vision.shown = shown_by({"waits": "Hale waits", "shell": "Impact", "marches": "March"})
+    h.vision.answers = [{"all_planned": False, "plan": {"scenes": [{"title": "The shell", "shots": [
+        {"title": "Impact", "prompt": "A shell hits the trench at dusk, earth flying", "seconds": 3,
+         "rationale": "the skipped part", "sound": {"lines": []}}]}]}}]
+    proj, chat, notes = planned(h, pid)
+    assert [(s["position"], s["title"]) for s in proj["shots"]] == [(1, "Hale waits"), (2, "Fog"), (3, "Impact"), (4, "March")]
+    assert not [m for m in chat if m["role"] == "error"]
+    assert any("asking the model for the skipped part directly" in n for n in notes)
+    assert not any("asking the model for the plan directly" in n for n in notes)
+    direct = next(b for b in h.vision.requests if "plan" in b["format"]["properties"])
+    assert "skips this part of my brief: “A shell hits the trench”" in direct["messages"][1]["content"]
+    # the model has nothing to add: said plainly, and still nothing is planned twice
+    pid = local_project(h)
+    h.vision.shown = shown_by({"waits": "Hale waits", "marches": "March"})
+    h.vision.answers = [{"all_planned": True, "summary": "All planned."}]
+    proj, chat, notes = planned(h, pid)
+    assert len(proj["shots"]) == 3 and "The director didn't add the skipped part of your brief" in notes[-1]
+
+
+def test_a_speaker_named_in_braces_is_that_character():
+    """Live: the director wrote the speaker as {Anthony_PJ}, as it names assets in prompts; the shot then warned
+    that the speaker wasn't one of its references, and no prompt fix could clear that."""
+    from app import sound
+    from app.capabilities import _h3_sound_issues
+    snd = sound.clean_sound({"lines": [{"speaker": "{Anthony_PJ}", "text": "What?!"}]})
+    assert snd["lines"][0]["speaker"] == "Anthony_PJ"
+    refs = [{"position": 1, "asset_id": "a1", "asset_name": "Anthony_PJ", "kind": "character"}]
+    assert not [i for i in _h3_sound_issues(snd, refs, []) if i["level"] == "warn"]
+    other = sound.clean_sound({"lines": [{"speaker": "Narrator", "text": "Later."}]})
+    assert [i.get("kind") for i in _h3_sound_issues(other, refs, []) if i["level"] == "warn"] == ["speaker"]

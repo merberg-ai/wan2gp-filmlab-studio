@@ -385,7 +385,9 @@ def _h3_sound_issues(sound_fields: dict | None, refs: list[dict], voiced: list[d
     subjects = sound._subjects(refs) if refs else []
     for ln in sound_fields["lines"]:
         if refs and not sound.speaker_subject(ln["speaker"], subjects):
-            out.append({"level": "warn", "message": f"“{ln['speaker']}” speaks but isn't one of the shot's references, so "
+            # kind "speaker": no prompt edit clears it, so Fix with director leaves it out (live: asked to, the
+            # director wrote "a voice-over speaks" into two prompts and the warning stayed)
+            out.append({"level": "warn", "kind": "speaker", "message": f"“{ln['speaker']}” speaks but isn't one of the shot's references, so "
                                                     "the model has to guess who that is (fine for a voice off screen)"})
     speakers = sound.voices_needed(sound_fields, refs)
     if len(voiced) > sound.MAX_VOICES:

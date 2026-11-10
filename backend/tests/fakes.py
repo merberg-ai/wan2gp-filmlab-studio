@@ -395,6 +395,9 @@ class FakeGateway:
                 await asyncio.sleep(60)
                 return self._sse(text="too late")
             return hang()
+        if getattr(self, "empty_gap", False) and "skips this part of my brief" in body["messages"][0]["content"]:
+            err = {"error": {"message": "internal error", "type": "api_error"}}
+            return httpx.Response(200, text=f"data: {json.dumps(err)}\n\n", headers={"content-type": "text/event-stream"})
         if self.empty or (self.empty_next_part and asks_next):
             if asks_next and self.empty_next_part:
                 self.empty_next_part -= 1
