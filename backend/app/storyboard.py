@@ -12,7 +12,7 @@ import json
 import math
 import re
 
-from . import shots
+from . import refnames, shots
 from .capabilities import setting_error, setting_problem
 from .sound import clean_sound
 from .db import Database, new_id, now
@@ -344,7 +344,15 @@ class Storyboard:
                         shot["resolution"] = shots.clean_fields({"resolution": sh["resolution"]}, partial=True)["resolution"]
                     except shots.ShotError as exc:
                         e.append(str(exc))
-                refs_in = sh.get("refs") or []
+                # {Asset name} in the prompt: FilmLab attaches the images and numbers them (refnames.py)
+                named = await refnames.resolve_prompt(self.db, shot["prompt"], MAX_REFS) if shot.get("prompt") else None
+                if named:
+                    shot["prompt"] = named["prompt"]
+                    e += named["errors"]
+                    warnings += [f"{w}: {n}" for n in named["notes"]]
+                    refs_in = [r["file_id"] for r in named["refs"]]
+                else:
+                    refs_in = sh.get("refs") or []
                 if not isinstance(refs_in, list):
                     e.append("refs must be a list of image file_ids")
                     refs_in = []
@@ -354,8 +362,13 @@ class Storyboard:
                 for k, fid in enumerate(refs_in[:MAX_REFS]):
                     fid = fid.get("file_id") if isinstance(fid, dict) else fid
                     img = await self._image(fid)
+                    if not img:  # an asset or look id, a cut-short image id, a name: repaired when it's clear
+                        img, note = await refnames.lenient_image(self.db, fid)
+                        if img and note:
+                            warnings.append(f"{w}: refs[{k}] {note}")
                     if not img:
-                        e.append(f"refs[{k}] '{fid}' isn't a library image (use images[].file_id from get_asset)")
+                        e.append(f"refs[{k}] '{fid}' isn't a library image: name the asset in the prompt as "
+                                 "{Asset_Name} instead (FilmLab attaches its picture)")
                     elif await library_off_limits(self.db, project, img["asset_id"]):
                         e.append(f"refs[{k}]: {LIBRARY_OFF}")
                     else:

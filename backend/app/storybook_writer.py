@@ -35,7 +35,8 @@ class StoryWriter:
                 "shot_ids": [p["shot_id"] for p in panels]}
         self.plans[project_id] = plan
         try:
-            plan["turn_id"] = await self.s.chat.send(project_id, brief, expect=("propose_story", "the story text"))
+            plan["turn_id"] = await self.s.chat.send(project_id, brief, expect=("propose_story", "the story text"),
+                                                         tools=["propose_story", "get_project"])
         except Exception:
             self.plans.pop(project_id, None)
             raise

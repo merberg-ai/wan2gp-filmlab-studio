@@ -136,7 +136,7 @@ def test_a_fresh_start_project_keeps_the_library_out(make_harness, images):
     h.post(f"/api/projects/{pid}/plan", {"replace_drafts": True})
     h.wait_for(lambda: not h.project(pid)["director_busy"], what="planned")
     brief = [m for m in h.c.get(f"/api/projects/{pid}/chat").json() if m["role"] == "user"][-1]["content"]
-    assert LIBRARY_NONE in brief and hale not in brief and LIBRARY_FIT not in brief
+    assert LIBRARY_NONE in brief and "{Corporal Hale}" not in brief and LIBRARY_FIT not in brief
     assert "doesn't use the shared Library" in project_header({"title": "T", "style": "", "plan_library": "none"})
     assert "Library" not in project_header({"title": "T", "style": "", "plan_library": "fit"})
     # Switched back to the Library: the catalogue comes with its limits; bad values are refused.
@@ -145,7 +145,7 @@ def test_a_fresh_start_project_keeps_the_library_out(make_harness, images):
     h.post(f"/api/projects/{pid}/plan", {"replace_drafts": True})
     h.wait_for(lambda: not h.project(pid)["director_busy"], what="planned")
     brief = [m for m in h.c.get(f"/api/projects/{pid}/chat").json() if m["role"] == "user"][-1]["content"]
-    assert LIBRARY_FIT in brief and hale in brief
+    assert LIBRARY_FIT in brief and "{Corporal Hale}" in brief
     assert run(h, pid, "assign_refs", shot_id=h.project(pid)["shots"][-1]["id"], refs=[{"file_id": hale}]).get("references")
     # An existing project is "fit" by default.
     assert h.project(new_project(h, "Old"))["plan_library"] == "fit"
@@ -163,7 +163,9 @@ def test_plan_with_director_sends_the_brief_and_library(make_harness, images):
     proj = h.wait_for(lambda: (x := h.project(pid)) and not x["director_busy"] and x["shots"] and x, what="planned")
     brief = [m for m in h.c.get(f"/api/projects/{pid}/chat").json() if m["role"] == "user"][-1]["content"]
     assert "My brief: “Hale waits in the trench" in brief and "Target length: 12 s" in brief
-    assert files_of(h, hv)[0] in brief and files_of(h, tv)[0] in brief and "Don't set replace_drafts" in brief
+    # Assets by name with their views, no image ids to copy; the plan named them and FilmLab attached the pictures.
+    assert "{Corporal Hale} (character)" in brief and "{The Trench} (location)" in brief
+    assert files_of(h, hv)[0] not in brief and "Don't set replace_drafts" in brief
     assert [s["title"] for s in proj["shots"]] == ["Hale waits", "Fog", "March"]
     assert [r["asset_name"] for r in proj["shots"][0]["refs"]] == ["Corporal Hale", "The Trench"]
     # A re-plan asks for replace_drafts and lists the current storyboard.
@@ -510,6 +512,34 @@ def test_a_long_plan_comes_in_parts_and_later_parts_never_replace(make_harness):
     assert chat[-1]["content"].startswith("All planned") and not [m for m in chat if m["role"] == "error"]
     asks = [m for m in h.gateway.requests if m["messages"][0]["content"].startswith("Part ")]
     assert len(asks) == 3 and "“Later scene 1”" in asks[-1]["messages"][0]["content"]
+
+
+def test_a_local_model_plans_each_part_in_a_fresh_conversation_with_only_planning_tools(make_harness):
+    """A local model's 32k context fills over a long plan and the brief scrolls out of view: each later part goes to a
+    fresh conversation with the brief and the storyboard so far. Plan turns offer only the planning tools."""
+    from app.director.planning import PLAN_TOOLS
+    h = make_harness().login()
+    pid = new_project(h)
+    patch(h, f"/api/projects/{pid}", {"brief": "A soldier waits in the trench at dusk, then marches away."})
+    assert h.c.put("/api/director/settings", json={"model": "ollama/qwen3.5:9b"},
+                   headers={"x-csrf-token": h.csrf}).status_code == 200
+    h.gateway.more_parts, h.gateway.carry_parts = 2, True
+    assert h.post(f"/api/projects/{pid}/plan", {"replace_drafts": True}).status_code == 202
+    proj = h.wait_for(lambda: (p := h.project(pid))["scenes"] and not p["director_busy"] and p, what="planned")
+    assert [s["title"] for s in proj["scenes"]][-2:] == ["Later scene 1", "Later scene 2"] and len(proj["shots"]) == 5
+    plans = [r for r in h.gateway.requests if r["messages"][0]["role"] == "user"]
+    convs = [r["user"] for r in plans]
+    assert convs[0].endswith(pid) and convs[1].endswith(":part1") and convs[2].endswith(":part2")
+    later = plans[2]["messages"][0]["content"]
+    assert "My brief: “A soldier waits" in later and "Carry on from it" in later and "Planned so far:" in later
+    assert "Later scene 1" in later  # the storyboard so far, scene by scene
+    assert all(sorted(t["function"]["name"] for t in r["tools"]) == sorted(PLAN_TOOLS) for r in plans)
+    assert not [r for r in h.gateway.requests if r["messages"][0]["content"].startswith("Part ")]
+    chat = h.c.get(f"/api/projects/{pid}/chat").json()
+    assert any("in a fresh conversation" in (m["content"] or "") for m in chat)
+    # A chat turn still offers every tool.
+    h.post(f"/api/projects/{pid}/chat", {"text": "hello"})
+    h.wait_for(lambda: len(h.gateway.requests[-1]["tools"]) > len(PLAN_TOOLS), what="chat with all tools")
 
 
 def test_plan_progress_and_stop_keep_the_saved_parts(make_harness):

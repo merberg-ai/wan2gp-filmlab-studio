@@ -408,7 +408,12 @@ class FakeGateway:
         if first["role"] == "assistant":  # tool follow-up
             return self._sse(text="Done. " + body["messages"][-1]["content"][:60])
         text = first["content"].lower()
-        if re.match(r"part \d+ is saved", text):
+        # a later part in a fresh conversation (a local model), when the test asks for that behaviour
+        carry_on = getattr(self, "carry_parts", False) and "carry on from it" in text
+        if re.match(r"part \d+ is saved", text) or carry_on:
+            if carry_on:
+                self.fresh_parts = getattr(self, "fresh_parts", 0) + 1
+                text = f"part {self.fresh_parts} is saved"
             if not self.more_parts:
                 return self._sse(text="All planned: three scenes.")
             self.more_parts -= 1
@@ -457,11 +462,13 @@ class FakeGateway:
 
     @staticmethod
     def plan_for(brief: str) -> dict:
-        """A small valid plan from the library image ids listed in the brief (first two images, if any)."""
-        lib = brief.split("Library (refs take these image file_ids):", 1)[-1].split("Current storyboard:", 1)[0]
-        ids = re.findall(r"\b[0-9a-f]{32}\b", lib)[:2]
-        lead = ({"refs": ids, "prompt": "<Picture 1> waits in <Picture 2> as fog rolls in, dusk, low rumble"}
-                if len(ids) == 2 else {"prompt": "A soldier waits in a foggy trench at dusk, low rumble"})
+        """A small valid plan that names the first library character and place in its lead prompt ({Name}),
+        as the brief lists them (“- {Name} (kind): … · views: …”)."""
+        lib = brief.split("Library (", 1)[-1].split("Current storyboard:", 1)[0]
+        chars = re.findall(r"^- \{([^}]+)\} \(character\)", lib, re.M)
+        places = re.findall(r"^- \{([^}]+)\} \(location\)", lib, re.M)
+        lead = ({"prompt": "{%s} waits in {%s} as fog rolls in, dusk, low rumble" % (chars[0], places[0])}
+                if chars and places else {"prompt": "A soldier waits in a foggy trench at dusk, low rumble"})
         return {"logline": "A soldier waits for the march", "replace_drafts": "replace_drafts: true" in brief.lower(),
                 "scenes": [
                     {"title": "The wait", "goal": "Establish the soldier", "mood": "tense", "shots": [

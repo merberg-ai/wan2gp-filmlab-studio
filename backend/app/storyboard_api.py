@@ -9,7 +9,7 @@ from . import auth, bulk, plan_check, shots, sound
 from .batches import BatchError
 from .db import now
 from .director.chat import ChatBusy
-from .director.planning import plan_brief
+from .director.planning import PLAN_TOOLS, plan_brief
 from .renders import RenderError, summarize_queue
 from .storyboard import StoryboardError
 from .trash import TrashError
@@ -205,7 +205,8 @@ async def plan(project_id: str, body: PlanIn, request: Request):
         rounds = (await s.director_settings.get())["plan_rounds"]
         # a plan comes in parts of a scene or two (about three rounds each): room for a long film
         turn = await s.chat.send(project_id, text, max_rounds=max(rounds, 3 * PLAN_PARTS + 2),
-                                 expect=("plan_storyboard", "a plan"), parts=PLAN_PARTS, resume=resume)
+                                 expect=("plan_storyboard", "a plan"), parts=PLAN_PARTS, resume=resume,
+                                 tools=PLAN_TOOLS)
     except ChatBusy as exc:
         raise HTTPException(409, str(exc)) from exc
     await s.db.audit(OWNER, "storyboard.plan_request", project_id, {"turn_id": turn, "replace": body.replace_drafts})

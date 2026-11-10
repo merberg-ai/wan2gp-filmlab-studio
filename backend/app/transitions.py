@@ -91,7 +91,8 @@ class TransitionPlanner:
         self.plans[project_id] = plan
         try:
             plan["turn_id"] = await self.s.chat.send(project_id, brief,
-                                                     expect=("propose_transitions", "the transition plan"))
+                                                     expect=("propose_transitions", "the transition plan"),
+                                                     tools=["propose_transitions", "get_edit", "get_project"])
         except Exception:
             self.plans.pop(project_id, None)
             raise

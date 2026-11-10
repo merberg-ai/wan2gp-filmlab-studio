@@ -28,6 +28,10 @@ jq --arg model "ollama/$MODEL" --arg id "$MODEL" --argjson deny "$DENY" '
         contextWindow: 262144, maxTokens: 8192,
         compat: {supportsTools: true, supportsUsageInStreaming: true, supportsJsonSchemaResponseFormat: false}
       }])
+  # A local model runs with the context OpenClaw asks Ollama for: 64k holds the director's setup (~15k tokens), a
+  # long brief and a few tool results (qwen3.5:9b: 7.7 GB of VRAM; without a limit Ollama takes 256k, 13.9 GB).
+  | .models.providers.ollama.models |= map(
+      if (.id | test("cloud$")) or ((.contextWindow // 0) < 65536) then . else . + {contextTokens: 65536} end)
 ' "$CFG" > "$CFG.tmp"
 mv "$CFG.tmp" "$CFG"
 chmod 600 "$CFG"

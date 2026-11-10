@@ -14,9 +14,10 @@ import httpx
 from .settings import OLLAMA_URL
 from .tools import TOOLS
 
-# The same context OpenClaw gives the director (contextTokens in its config): without it Ollama uses the model's own
-# default, 256k tokens for qwen3.5, which nearly fills a 16 GB GPU.
-PLAN_CTX = 32768
+# The same context OpenClaw gives a local director (contextTokens in its config): without it Ollama uses the model's
+# own default, 256k tokens for qwen3.5 (13.9 GB, nearly the whole 16 GB GPU). 64k is 7.7 GB (measured), and the
+# director's setup alone is ~15k tokens before the brief.
+PLAN_CTX = 65536
 SYSTEM = ("You are FilmLab's film director, planning a storyboard. You answer with JSON only, in the form you are "
           "given: no text around it.")
 ASK = ("\n\nAnswer with JSON only: {\"all_planned\": false, \"plan\": {the arguments of your next plan_storyboard "

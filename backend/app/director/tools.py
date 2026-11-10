@@ -10,11 +10,11 @@ import logging
 
 import httpx
 
-from .. import library_context, shots
+from .. import library_context, refnames, shots
 from ..capabilities import setting_error, setting_problem, picture_problem
 from ..db import new_id, now
 from ..edit import EditError
-from ..library import LibraryError
+from ..library import MAX_REFS_PER_SHOT, LibraryError
 from ..presets import PresetError
 from ..renders import RenderError
 from ..runs import RunError
@@ -48,6 +48,8 @@ _SOUND = {"type": "object", "description": (
     "ambience": {"type": "string", "description": "Sounds of the place and the action, e.g. 'servo whirr, low hum'"},
     "music": {"type": "string", "description": "Score the audience hears; omit for none"}}}
 
+NAMES = 'Name library assets in the prompt in braces, exactly as the library lists them: {Heavy_Metal_Antihero}, or a view: {Heavy_Metal_Antihero/front portrait}. FilmLab attaches their pictures in that order and writes <Picture N>; leave refs empty then.'
+
 _SHOT_FIELDS = {
     "title": {"type": "string", "description": "Short shot name, e.g. 'Establishing wide'"},
     "description": {"type": "string", "description": "What happens and why, for the owner"},
@@ -71,12 +73,13 @@ _REF = {"type": "object", "properties": {
 _PLAN_SHOT = {"type": "object", "required": ["title", "prompt", "seconds", "rationale"], "properties": {
     "title": {"type": "string"},
     "idea": {"type": "string", "description": "One plain line of what happens"},
-    "prompt": {"type": "string", "description": "The picture, naming every reference as <Picture N> in refs order; "
-                                                "no sound or speech (they go in sound)"},
+    "prompt": {"type": "string", "description": "The picture; no sound or speech (they go in sound). " + NAMES},
     "sound": _SOUND,
     "seconds": {"type": "number", "description": "2-10 typically; snapped to the model's frame grid"},
     "resolution": {"type": "string", "description": "Omit for the project's default"},
-    "refs": {"type": "array", "maxItems": 8, "items": {"type": "string"}, "description": "Library image file_ids, in order"},
+    "refs": {"type": "array", "maxItems": 8, "items": {"type": "string"},
+             "description": "Optional: library image file_ids in <Picture N> order. Not needed when the prompt names "
+                            "assets in {braces}"},
     "transition": {"type": "string", "enum": list(shots.TRANSITIONS), "description": "Into the next shot"},
     "rationale": {"type": "string", "description": "Why this shot, these references and this length"}}}
 _PLAN_SCENE = {"type": "object", "required": ["shots"], "properties": {
@@ -479,8 +482,24 @@ class DirectorTools:
                              "shot, remove its reference with assign_refs first (the prompt alone doesn't remove "
                              "it). Nothing was saved; call it again with the fixed prompt")
 
+    async def _named(self, prompt) -> dict | None:
+        """{Asset names} in a prompt (refnames.py): the prompt with <Picture N>, and the refs to attach."""
+        named = await refnames.resolve_prompt(self.db, str(prompt or ""), MAX_REFS_PER_SHOT)
+        if named and named["errors"]:
+            raise ValueError("; ".join(named["errors"]) + ". Nothing was saved")
+        return named
+
+    async def _attach_named(self, project_id, shot_id, named, rationale) -> list[str]:
+        res = await self.assign_refs(project_id, shot_id, [{"variant_id": r["variant_id"], "file_id": r["file_id"]}
+                                                           for r in named["refs"]],
+                                     rationale or "references named in the prompt")
+        return res["references"] + named["notes"]
+
     async def draft_shot(self, project_id, template=None, scene_id=None, rationale="", **fields):
         fields.pop("idea", None)  # the idea is the owner's own words
+        named = await self._named(fields.get("prompt")) if fields.get("prompt") else None
+        if named:
+            fields["prompt"] = named["prompt"]
         if scene_id:
             await self.studio.storyboard.scene(scene_id, project_id)
             await self._says_its_setting(scene_id, fields.get("prompt"))
@@ -488,7 +507,8 @@ class DirectorTools:
         shot = await shots.create_shot(self.db, self.bus, project_id, fields, tpl, self.ACTOR, explicit,
                                        scene_id=scene_id, rationale=rationale)
         await self.studio.storyboard.renumber(project_id)
-        return {"shot": _shot_view(await shots.get_shot(self.db, shot["id"]))}
+        out = {"references": await self._attach_named(project_id, shot["id"], named, rationale)} if named else {}
+        return {"shot": _shot_view(await shots.get_shot(self.db, shot["id"]))} | out
 
     async def update_shot(self, project_id, shot_id, template=None, rationale="", **fields):
         fields.pop("idea", None)  # the idea is the owner's own words
@@ -498,14 +518,21 @@ class DirectorTools:
         if not fields and not template:
             raise ValueError("nothing to change: pass the fields to update (e.g. prompt) as top-level arguments")
         tpl = await self.renders.resolve_template(template) if template else None
+        attached = None
+        before = await shots.snapshot(self.db, shot_id)
         if "prompt" in fields:
             await self._says_its_setting(shot["scene_id"], fields["prompt"])
+            named = await self._named(fields["prompt"])
+            if named:  # the named assets become the shot's references, in order
+                fields["prompt"] = named["prompt"]
+                attached = await self._attach_named(project_id, shot_id, named, rationale)
+                shot = await shots.get_shot(self.db, shot_id, project_id)
             await self._names_its_pictures(shot["id"], fields["prompt"])
-        before = await shots.snapshot(self.db, shot_id)
         updated = await shots.update_shot(self.db, self.bus, shot, fields, self.ACTOR, tpl, rationale=rationale)
+        extra = {"references": attached} if attached else {}
         if await shots.snapshot(self.db, shot_id) == before:
-            return {"shot": _shot_view(updated), "note": "nothing changed: the values were already the same"}
-        return {"shot": _shot_view(updated)}
+            return {"shot": _shot_view(updated), "note": "nothing changed: the values were already the same"} | extra
+        return {"shot": _shot_view(updated)} | extra
 
     async def plan_storyboard(self, project_id, scenes, logline="", replace_drafts=False):
         p = await self.db.fetchone("SELECT music_mode FROM projects WHERE id = ?", (project_id,))

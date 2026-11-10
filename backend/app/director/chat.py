@@ -85,13 +85,15 @@ class DirectorChat:
         return project_id in self._active
 
     async def send(self, project_id: str, text: str, max_rounds: int | None = None,
-                   expect: tuple[str, str] | None = None, parts: int = 0, resume=None) -> str:
+                   expect: tuple[str, str] | None = None, parts: int = 0, resume=None,
+                   tools: list[str] | None = None) -> str:
         """max_rounds: more tool rounds for a turn known to need them (planning a storyboard).
         expect: (tool, what) for a turn that exists to make that tool succeed; if the director ends the turn
         without it succeeding, the chat says plainly that nothing was saved.
         parts: the expected tool may succeed up to this many times (a plan in parts); after each, FilmLab asks for
         the next part until the director says it's all planned.
         resume: async () -> str, the message that carries on a plan in parts from what is saved (as Plan more does).
+        tools: only these tools for this turn (a plan doesn't need renders or edits): fewer tokens, less to get wrong.
         If the reply comes back empty after some parts were saved, FilmLab sends it once in a fresh conversation."""
         if self.busy(project_id):
             raise ChatBusy("the director is still answering")
@@ -106,7 +108,7 @@ class DirectorChat:
         if parts:
             self.planning[project_id] = {"turn_id": turn_id, "started_at": now(), "parts": 0, "seconds": 0.0,
                                          "scenes": 0}
-        task = asyncio.create_task(self._run(project_id, turn_id, text, max_rounds, expect, parts, resume))
+        task = asyncio.create_task(self._run(project_id, turn_id, text, max_rounds, expect, parts, resume, tools))
         self._tasks.add(task)
         self._task_of[project_id] = task
         task.add_done_callback(self._tasks.discard)
@@ -177,7 +179,7 @@ class DirectorChat:
         await self.bus.publish("plan.progress", dict(state), project_id)
 
     async def _turn(self, project_id: str, turn_id: str, text: str, rounds: int | None,
-                    expect: tuple[str, str] | None = None, parts: int = 0, resume=None):
+                    expect: tuple[str, str] | None = None, parts: int = 0, resume=None, tools: list[str] | None = None):
         project = await self.db.fetchone("SELECT title, style, plan_library FROM projects WHERE id = ?", (project_id,))
         conversation, notes, model = f"filmlab:project:{project_id}", "", None
         try:
@@ -190,6 +192,19 @@ class DirectorChat:
         except Exception:  # noqa: BLE001 - the owner's settings must never stop a turn
             log.exception("director settings unavailable; using defaults")
         rounds = rounds or self.max_rounds
+        offered = [t for t in TOOLS if t["function"]["name"] in tools] if tools else TOOLS
+        runs_on = model
+        if not runs_on and self.settings:
+            try:
+                runs_on = self.settings.model().get("model")
+            except Exception:  # noqa: BLE001
+                runs_on = None
+        # A local model's 32k context fills up over a long plan (each part's tool results stay in the
+        # conversation) and the brief scrolls out of view: it then plans the rest from memory. Each part
+        # after the first goes to a fresh conversation with the brief and what's saved (resume()).
+        fresh_parts = bool(parts and resume and self.gpu and self.gpu.local(runs_on))
+        base_conversation = conversation
+
         def opening(body: str) -> list[dict]:
             return [{"role": "user", "content": f"{project_header(project, body)}\n{body}{notes}"}]
 
@@ -205,7 +220,7 @@ class DirectorChat:
         while True:
             try:
                 for n in range(rounds):
-                    result = await self.gateway.stream_turn(conversation, messages, TOOLS, on_delta, model=model)
+                    result = await self.gateway.stream_turn(conversation, messages, offered, on_delta, model=model)
                     if not result.tool_calls:
                         await self._save(project_id, "assistant", result.text)
                         await self.bus.publish("chat.message", {"turn_id": turn_id, "role": "assistant",
@@ -224,6 +239,14 @@ class DirectorChat:
                         if (parts and asked < done < parts and n < rounds - 1
                                 and "all planned" not in (result.text or "").lower()):
                             asked = done  # once per saved part: a reply without a new part ends the turn
+                            if fresh_parts:
+                                conversation = f"{base_conversation}:part{done}"
+                                messages = opening(await resume())
+                                nudged = False
+                                await self._save(project_id, "note", f"FilmLab asked the director for the next part "
+                                                 f"(part {done} saved), in a fresh conversation with the brief and the "
+                                                 "storyboard so far.")
+                                continue
                             scenes = [s["title"] for s in await self.tools.studio.storyboard.scenes(project_id)]
                             messages = [{"role": "user", "content": NEXT_PART.format(
                                 n=done, scenes="; ".join(f"“{t}”" for t in scenes) or "none")}]
