@@ -13,6 +13,7 @@ vision call leaves the technical part standing and says so.
 """
 
 import asyncio
+import contextlib
 import base64
 import json
 import logging
@@ -180,6 +181,7 @@ class Inspector:
         self._transport = transport
         self._tasks: dict[str, asyncio.Task] = {}
         self._vision = asyncio.Semaphore(1)
+        self.gpu = None  # GpuShare (gpu_share.py), set by Studio: a local vision model waits for WanGP to finish
         self.library = None  # set by Studio
         self.listeners: list = []  # async (take_id, inspection) -> None
 
@@ -297,7 +299,8 @@ class Inspector:
             else:
                 model = cfg["vision_model"]
                 try:
-                    async with self._vision:
+                    gpu = self.gpu.llm(model, f"inspect:{take_id}") if self.gpu else contextlib.nullcontext()
+                    async with self._vision, gpu:
                         vision = await self._ask_vision(cfg, vision_text(shot, setting, mood, refs), frames)
                     flags += vision_flags(vision, bool(setting))
                 except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError) as exc:

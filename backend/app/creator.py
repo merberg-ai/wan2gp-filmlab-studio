@@ -10,6 +10,7 @@
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 
@@ -282,6 +283,14 @@ class Creator:
         c = await self.get(creation_id)
         cfg = await self.s.director_settings.get()
         model = cfg.get("model") or None
+        runs_on = model
+        if not runs_on:  # the agent's own model, from OpenClaw's config
+            with contextlib.suppress(Exception):
+                runs_on = self.s.director_settings.model().get("model")
+        async with self.s.gpu_share.llm(runs_on, f"creator:{creation_id}"):  # a local model: after WanGP's work
+            await self._draft_turn(creation_id, voice, c, model)
+
+    async def _draft_turn(self, creation_id: str, voice: bool, c: dict, model: str | None):
         conversation = f"filmlab:creator:{creation_id}:{new_id()[:6]}"
         first = [{"role": "user", "content": creator_brief(c["kind"], c["brief"], c["image_template"],
                                                            c["edit_template"], voice, c.get("sound_type"),

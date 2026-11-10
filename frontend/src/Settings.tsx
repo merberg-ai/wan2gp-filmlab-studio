@@ -229,7 +229,8 @@ function DirectorSettings() {
     if (!id) { await save({ model: "" }, "Model"); setTest({ busy: false }); return; }
     const m = models?.find((x) => x.id === id);
     if (m && !m.cloud && !(await ask(`Run the director on ${m.name}, on this PC's GPU? `
-      + "It loads into the same video memory WanGP renders with, so renders can be slower or wait (see GPU sharing). "
+      + "It shares the video memory WanGP renders with, so they take turns (Health → GPU sharing): FilmLab unloads it "
+      + "before each render, and while WanGP is rendering the director waits for the queue to finish. "
       + `Small local models (${m.size ?? "this size"}) are also much weaker at long plans and tool calls than the cloud model.`,
       { confirm: "Try it" }))) return;
     setTrying(id); setTest({ busy: true });

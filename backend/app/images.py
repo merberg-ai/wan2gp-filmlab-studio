@@ -129,6 +129,9 @@ class ImageJobs(RenderService):
         if clip_for:
             await self.db.kv_set(f"clip_for:{job_id}", clip_for)
         await self.db.audit(actor, "image.submit", variant_id, {"job_id": job_id, "template": template, "count": count})
+        if self.gpu and self.gpu.llm_busy():  # a local-model director turn holds the GPU: send it when that ends
+            self._spawn(job_id)
+            return await self.job(job_id)
         try:
             await self._submit_to_wangp(job_id)
         except WanGPError as exc:

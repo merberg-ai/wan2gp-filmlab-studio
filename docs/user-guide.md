@@ -267,7 +267,7 @@ The old contact sheet is still at `#/p/<project>/sheet`.
 | **Presets** | Ready-made size, length and model combinations, plus your own |
 | **Director** | The director's model, your standing notes for it, how it replies, how many steps it may take, and a connection test |
 | **Take inspection** | Inspect new takes automatically, and the vision check: Off, a Local model, or a Cloud model (with a Local/Cloud label on the model) |
-| **GPU sharing** | Whether to wait while a local Ollama model holds VRAM |
+| **GPU sharing** | How FilmLab shares the GPU with local Ollama models. **Take turns** (the default): FilmLab unloads local models before any WanGP job, a local director or vision model waits while WanGP is busy, and a render asked for during a local director turn starts when the turn ends. Also: wait, warn, or don't check |
 
 ## Tips for better results
 

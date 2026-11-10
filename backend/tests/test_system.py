@@ -110,7 +110,8 @@ def test_low_disk_and_gpu_sharing_hold_renders(make_harness):
     r = h.post(f"/api/shots/{s['id']}/approve-and-render")
     assert r.status_code >= 400 and "GB free" in r.text
     put({"warn_free_gb": 20, "min_free_gb": 0})
-    # A local Ollama model on the GPU: a warning by default, a wait when the owner chooses so.
+    # A local Ollama model on the GPU: with "warn" a warning, with "wait" a wait (the default unloads it).
+    put({"gpu_share": "warn"})
     h.vision.loaded = [{"name": "llama3.1:8b", "size_vram": 6_000_000_000},
                        {"name": "gemma4:31b-cloud", "size_vram": 0}]
     checks = h.c.get(f"/api/shots/{s['id']}/checks").json()["issues"]

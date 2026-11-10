@@ -32,6 +32,7 @@ from .director.enhance import can_enhance
 from .enhance_all import EnhanceAll, EnhanceError, enhance_request
 from .transitions import TransitionPlanner
 from .storybook import Storybook
+from .gpu_share import GpuShare
 from .storybook_writer import StoryWriter
 from .director.gateway import GatewayClient
 from .director.tools import DirectorTools
@@ -159,6 +160,9 @@ class Studio:
         self.creator = Creator(self)
         self.enhance_all = EnhanceAll(self)
         self.chat.console = self.console
+        # One GPU for WanGP and local Ollama models: they take turns (gpu_share.py)
+        self.gpu_share = GpuShare(self, transport=vision_transport)
+        self.renders.gpu = self.images.gpu = self.chat.gpu = self.inspector.gpu = self.gpu_share
         self.runs.held = self.gpu_held
         self.health.wangp = (self.wangp, None)
         self.renders.gate = self.render_gate

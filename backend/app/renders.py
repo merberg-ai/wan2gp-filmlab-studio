@@ -125,6 +125,7 @@ class RenderService:
         self.on_finish = None  # async (job, status) -> None, set by the batch runner
         self.listeners: list = []  # more async (job, status) -> None: redo runs, take inspection
         self.gate = None  # async () -> reason | None: the owner's GPU hold, set by Studio
+        self.gpu = None  # GpuShare (gpu_share.py), set by Studio: Ollama's local models make way before WanGP work
 
     # --- setup -----------------------------------------------------------
 
@@ -276,6 +277,9 @@ class RenderService:
              int(bool(preview))))
         await self._set_shot(shot, "queued")
         await self.db.audit(actor, "render.submit", shot["id"], {"job_id": job_id, "preview": bool(preview)})
+        if self.gpu and self.gpu.llm_busy():  # a local-model director turn holds the GPU: send it when that ends
+            self._spawn(job_id)
+            return await self.job(job_id)
         try:
             try:
                 await self._submit_to_wangp(job_id)
@@ -305,6 +309,12 @@ class RenderService:
         return await self.job(job_id)
 
     async def _submit_to_wangp(self, job_id: str):
+        if self.gpu:
+            async def waiting(msg):
+                if self.TABLE == "render_jobs":
+                    await self.db.execute("UPDATE render_jobs SET status_text = ? WHERE id = ?", (msg[:200], job_id))
+                await self._emit(job_id, f"{self.EVENT}.progress")
+            await self.gpu.before_wangp(f"{self.TABLE}:{job_id}", waiting)
         job = await self.job(job_id)
         res = await self.wangp.call("wangp_generate", {
             "settings": json.loads(job["settings"]), "wait": False, "request_id": job["request_id"]})

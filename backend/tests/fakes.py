@@ -508,6 +508,8 @@ class FakeVision:
         self.fail = False
         self.requests: list[dict] = []
         self.loaded: list[dict] = []  # what /api/ps reports
+        self.unloaded: list[str] = []  # models FilmLab asked to unload (keep_alive 0)
+        self.sticky = False  # a model that won't unload
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -515,6 +517,13 @@ class FakeVision:
     def handle(self, request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/ps":  # Ollama's loaded models (the GPU-sharing check)
             return httpx.Response(200, json={"models": self.loaded})
+        if request.url.path == "/api/generate":  # {"model", "keep_alive": 0}: unload it
+            body = json.loads(request.content)
+            if body.get("keep_alive") == 0:
+                self.unloaded.append(body["model"])
+                if not self.sticky:
+                    self.loaded = [m for m in self.loaded if m["name"] != body["model"]]
+            return httpx.Response(200, json={"model": body.get("model"), "done": True, "done_reason": "unload"})
         if request.url.path == "/api/tags":  # what Settings → Director offers
             return httpx.Response(200, json={"models": [{"name": n, "remote_host": "https://ollama.com" if c else None,
                                                          "details": {"parameter_size": s}} for n, c, s, _ in self.TAGS]})

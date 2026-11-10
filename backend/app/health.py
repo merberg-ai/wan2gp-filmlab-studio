@@ -2,7 +2,8 @@
 
 Everything here reads. The only changes it makes are the owner's explicit cleanup actions: clearing caches
 that regenerate by themselves, and removing files on disk that no database row refers to (listed first).
-GPU sharing only *reads* Ollama's list of loaded models; FilmLab never unloads or stops another app's models.
+GPU sharing reads Ollama's list of loaded models; with gpu_share = "unload" (the default) gpu_share.py asks Ollama
+to unload its local models before FilmLab sends work to WanGP. Other modes only read.
 """
 
 import asyncio
@@ -17,7 +18,8 @@ import httpx
 from .db import Database, now
 
 log = logging.getLogger("filmlab.health")
-DEFAULTS = {"warn_free_gb": 20, "min_free_gb": 5, "gpu_share": "warn", "ollama_url": "http://127.0.0.1:11434"}
+DEFAULTS = {"warn_free_gb": 20, "min_free_gb": 5, "gpu_share": "unload", "ollama_url": "http://127.0.0.1:11434"}
+GPU_SHARE = ("off", "warn", "wait", "unload")
 ACTIVE = ("submitting", "queued", "running", "cancelling", "restored")
 UNITS = ("filmlab-backend", "filmlab-gateway")
 
@@ -57,8 +59,8 @@ class Health:
         if cur["min_free_gb"] > cur["warn_free_gb"]:
             raise HealthError("the refuse level must not be above the warning level")
         if "gpu_share" in patch:
-            if patch["gpu_share"] not in ("off", "warn", "wait"):
-                raise HealthError("gpu_share must be off, warn or wait")
+            if patch["gpu_share"] not in GPU_SHARE:
+                raise HealthError(f"gpu_share must be {', '.join(GPU_SHARE)}")
             cur["gpu_share"] = patch["gpu_share"]
         await self.db.kv_set("health.settings", {k: cur[k] for k in ("warn_free_gb", "min_free_gb", "gpu_share")})
         return cur
@@ -101,7 +103,7 @@ class Health:
 
     async def gpu_share_note(self) -> str | None:
         cfg = await self.settings()
-        if cfg["gpu_share"] == "off":
+        if cfg["gpu_share"] in ("off", "unload"):  # unload: FilmLab frees it right before the render
             return None
         loaded = await self.ollama_loaded()
         if not loaded:

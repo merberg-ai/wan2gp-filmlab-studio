@@ -89,12 +89,18 @@ export function SystemPage({ gpu }: { gpu: GpuSample | null }) {
             <p>Ollama models on the GPU: {h.gpu.ollama_loaded.length ? h.gpu.ollama_loaded.map((m) => `${m.name} (${m.vram_gb} GB)`).join(", ") : "none"}</p>
             <label>Sharing the GPU with Ollama
               <select value={h.settings.gpu_share} onChange={(e) => act("share", async () => { await api.systemSettings({ gpu_share: e.target.value }); })}>
-                <option value="off">Don't check</option>
-                <option value="warn">Warn before a render (default)</option>
+                <option value="unload">Take turns: unload Ollama's local models before WanGP work (default)</option>
                 <option value="wait">Wait until Ollama's local models are unloaded</option>
+                <option value="warn">Warn before a render</option>
+                <option value="off">Don't check</option>
               </select></label>
-            <p className="muted">FilmLab only reads Ollama's list of loaded models. It never unloads or stops another app's models.
-              To pause FilmLab for other GPU work, use Hold GPU work in a project.</p>
+            <p className="muted">{h.settings.gpu_share === "unload"
+              ? "Before any render, image, voice or music job goes to WanGP, FilmLab asks Ollama to unload its local models "
+                + "(cloud models don't use this GPU). A director turn or take inspection on a local model waits while WanGP "
+                + "has work, and a render asked for during such a turn starts when it ends. This also unloads local models "
+                + "another app loaded in Ollama."
+              : "FilmLab only reads Ollama's list of loaded models; it doesn't unload them."} To pause FilmLab for other GPU
+              work, use Hold GPU work in a project.</p>
           </section>
         </div>
       </>}

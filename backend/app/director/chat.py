@@ -6,6 +6,7 @@ Gateway, and persists the visible conversation in chat_messages.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 
@@ -78,6 +79,7 @@ class DirectorChat:
         self._stopping: set[str] = set()  # turns the owner stopped (a cancel otherwise means shutdown)
         self.planning: dict[str, dict] = {}  # a plan in parts being written: parts saved, seconds planned
         self.console = None  # Console, set by Studio: each tool call with its arguments and result
+        self.gpu = None  # GpuShare (gpu_share.py), set by Studio: a local model waits for WanGP to finish
 
     def busy(self, project_id: str) -> bool:
         return project_id in self._active
@@ -110,9 +112,26 @@ class DirectorChat:
         task.add_done_callback(self._tasks.discard)
         return turn_id
 
+    async def _gpu_turn(self, project_id: str, turn_id: str):
+        """While a LOCAL director model works, WanGP gets nothing new; it waits while WanGP renders (gpu_share.py)."""
+        if not self.gpu:
+            return contextlib.nullcontext()
+        model = None
+        if self.settings:
+            try:
+                model = (await self.settings.get()).get("model") or self.settings.model().get("model")
+            except Exception:  # noqa: BLE001 - unknown model: treated as cloud, never held back
+                model = None
+
+        async def waiting(msg):
+            await self._save(project_id, "note", msg)
+            await self.bus.publish("chat.message", {"turn_id": turn_id, "role": "note", "content": msg}, project_id)
+        return self.gpu.llm(model, f"chat:{project_id}", waiting)
+
     async def _run(self, project_id: str, turn_id: str, *args):
         try:
-            await self._turn(project_id, turn_id, *args)
+            async with await self._gpu_turn(project_id, turn_id):
+                await self._turn(project_id, turn_id, *args)
         except asyncio.CancelledError:
             if project_id not in self._stopping:
                 raise  # the backend is shutting down
