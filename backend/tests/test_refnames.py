@@ -101,3 +101,17 @@ def test_a_scenes_place_becomes_the_setting_of_shots_that_name_none(make_harness
     assert sum("added the scene's place, The Trench" in w for w in out["warnings"]) == 2
     scene = h.project(pid)["scenes"][0]
     assert scene["location_asset_id"]  # "{The Trenh}" (a typo, in braces) read as The Trench
+
+
+def test_a_part_that_overruns_the_target_is_refused_with_the_seconds_left(make_harness, images):
+    h = make_harness().login()
+    pid = new_project(h)
+    h.c.patch(f"/api/projects/{pid}", json={"target_seconds": 12}, headers={"x-csrf-token": h.csrf})
+    part = lambda t, n, secs: [{"title": t, "time_place": "a trench at dusk", "shots": [
+        shot(f"{t} {k}", "A soldier waits in a trench at dusk, fog", secs) for k in range(n)]}]
+    assert "error" not in run(h, pid, "plan_storyboard", scenes=part("One", 2, 4))  # 8 s
+    out = run(h, pid, "plan_storyboard", scenes=part("Two", 4, 4))  # +16 s: 24 s of 12 (at most 20)
+    errs = "\n".join(out["errors"])
+    assert "the film would run 24 s against its 12 s target (at most 20 s)" in errs and "About 4 s are left" in errs
+    assert len(h.project(pid)["shots"]) == 2  # nothing of the refused part was written
+    assert "error" not in run(h, pid, "plan_storyboard", scenes=part("Two", 2, 3))  # a shorter part goes in

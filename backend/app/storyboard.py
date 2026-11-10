@@ -20,7 +20,8 @@ from .events import EventBus
 from .media import snap_frames
 
 MAX_SCENES, MAX_SHOTS, MAX_REFS = 12, 30, 8
-SCENE_PLACE_MAX = 4  # the scene's place is added to a shot that has fewer pictures than this
+SCENE_PLACE_MAX = 4
+PLAN_OVERRUN, PLAN_SLACK_S = 1.25, 5  # a director's plan may run to 125 % of the target, plus a few seconds  # the scene's place is added to a shot that has fewer pictures than this
 REPLACEABLE = ("draft", "pending_approval")
 LIBRARY_OFF = ("this project doesn't use the Library (the owner chose a fresh start): plan the shot without "
                "references, or request_image a new design for this film")
@@ -467,12 +468,26 @@ class Storyboard:
                     templates[sh["template"]] = await self.renders.resolve_template(sh["template"])
         project = await self.db.fetchone("SELECT * FROM projects WHERE id = ?", (project_id,))
         live = await self.db.fetchall(
-            "SELECT s.id, s.position, s.title, s.status, s.locked, s.scene_id, "
+            "SELECT s.id, s.position, s.title, s.status, s.locked, s.scene_id, s.frames, "
             "(SELECT COUNT(*) FROM takes t WHERE t.shot_id = s.id) AS takes FROM shots s "
             "WHERE s.project_id = ? AND s.deleted_at IS NULL ORDER BY s.position", (project_id,))
         replaced = [s for s in live if p["replace_drafts"] and s["status"] in REPLACEABLE and not s["locked"]
                     and not s["takes"]] if p["replace_drafts"] else []
         kept = [s for s in live if s not in replaced]
+        # The film's target is a rule for the director, not a hint: a part that would run the storyboard well past it
+        # is refused with the seconds left (live: warned after every part, a local model still planned 112 s of 60).
+        target = project.get("target_seconds")
+        if target and actor == "director":
+            have = sum((s["frames"] - 1) / 24 for s in kept)
+            limit = target * PLAN_OVERRUN + PLAN_SLACK_S
+            if have + p["total_seconds"] > limit:
+                left = max(0.0, target - have)
+                raise PlanInvalid([
+                    f"this part runs {p['total_seconds']:.0f} s, and with the {have:.0f} s already planned the film would "
+                    f"run {have + p['total_seconds']:.0f} s against its {target} s target (at most {limit:.0f} s). About "
+                    f"{left:.0f} s are left for the rest of my brief: make this part's shots shorter (2-4 s) or fewer, "
+                    "and keep each remaining scene within its share" + (", or, if the brief is covered, reply that "
+                    "it's all planned" if left < 3 else "")])
         ts = now()
         created_scenes, created_shots, revisions = [], [], []
         # A re-plan also clears the scenes it leaves empty (else the old plan's scene titles stay on the storyboard,
