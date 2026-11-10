@@ -123,7 +123,9 @@ async def plan_brief(s, project: dict, replace: bool) -> str:
     lines += [
         "Plan the film in parts, in film order: each plan_storyboard call holds ONE or TWO scenes (at most 6 shots); "
         "a call with a whole long film is too much to write at once and fails. After each part is saved FilmLab asks "
-        "for the next. A scene has title, goal, time_place and mood, and its shots. Per shot: title; idea (one plain "
+        "for the next. A scene has title, goal, time_place and mood, location_asset_id (the library place it's set "
+        "in, by name: {Place_Name}; FilmLab adds that place's picture to each of the scene's shots that names no "
+        "other place, so give every scene set in a library place its location), and its shots. Per shot: title; idea (one plain "
         "line of what happens); prompt; seconds (2-10; the whole film near the target: budget the target across my "
         "brief's scenes before you start, and if my brief times its scenes, e.g. 0-8s, keep each scene within its "
         "time); transition into the next shot (cut "

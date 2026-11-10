@@ -20,6 +20,7 @@ from .events import EventBus
 from .media import snap_frames
 
 MAX_SCENES, MAX_SHOTS, MAX_REFS = 12, 30, 8
+SCENE_PLACE_MAX = 4  # the scene's place is added to a shot that has fewer pictures than this
 REPLACEABLE = ("draft", "pending_approval")
 LIBRARY_OFF = ("this project doesn't use the Library (the owner chose a fresh start): plan the shot without "
                "references, or request_image a new design for this film")
@@ -144,7 +145,10 @@ class Storyboard:
         if not asset_id:
             return None
         a = await self.db.fetchone("SELECT id FROM assets WHERE id = ? AND deleted_at IS NULL", (str(asset_id),))
-        if not a:  # a location's name instead of its id ("jim_lab", "Jim lab"): accept it when exactly one matches
+        if not a:  # a location's name instead of its id ("jim_lab", "Jim lab", "{Jim_Lab}"): accept it when exactly one matches
+            found, _, _ = await refnames.find_asset(self.db, str(asset_id).strip().strip("{}"))
+            if found and found["kind"] == "location":
+                return found["id"]
             key = re.sub(r"[\s_-]+", " ", str(asset_id)).strip().lower()
             rows = await self.db.fetchall("SELECT id, name FROM assets WHERE kind = 'location' AND deleted_at IS NULL AND draft = 0")
             hits = [r for r in rows if re.sub(r"[\s_-]+", " ", r["name"]).strip().lower() == key]
@@ -277,6 +281,23 @@ class Storyboard:
             "ON f.id = vf.file_id WHERE vf.file_id = ? AND f.kind = 'image' AND v.deleted_at IS NULL "
             "AND a.deleted_at IS NULL AND a.draft = 0 ORDER BY v.version DESC LIMIT 1", (str(file_id),))
 
+    async def _scene_place(self, shot: dict, refs: list[dict], location_id: str | None, where: str, notes: list[str]):
+        """A shot with no place among its references gets its scene's location as the setting (a small model names
+        the characters and forgets the place: live, 11 of 16 shots). Its picture is added after the others and the
+        prompt names it, so it's used as the setting. Skipped when the shot is full (SCENE_PLACE_MAX)."""
+        if not location_id or not shot.get("prompt") or len(refs) >= SCENE_PLACE_MAX:
+            return
+        if any(r.get("kind") == "location" for r in refs):
+            return
+        asset = await self.db.fetchone("SELECT id, name, kind FROM assets WHERE id = ? AND deleted_at IS NULL AND draft = 0",
+                                       (location_id,))
+        img = (await refnames.pick_image(self.db, asset, None))[0] if asset else None
+        if not img:
+            return
+        refs.append(img)
+        shot["prompt"] = f"{shot['prompt'].rstrip()} Setting: <Picture {len(refs)}>."
+        notes.append(f"{where}: added the scene's place, {asset['name']}, as the setting (<Picture {len(refs)}>)")
+
     async def validate_plan(self, project_id: str, plan: dict) -> dict:
         """Check every scene and shot; return the normalised plan, or raise PlanInvalid with all errors."""
         errors: list[str] = []
@@ -303,9 +324,10 @@ class Storyboard:
                 if sc["scene_id"] not in existing:
                     errors.append(f"{where}.scene_id isn't a scene of this project")
                 scene["scene_id"] = sc["scene_id"]
-            if sc.get("location_asset_id"):
+            place_given = sc.get("location_asset_id") or sc.get("location")
+            if place_given:
                 try:
-                    scene["location"] = await self._location(sc["location_asset_id"])
+                    scene["location"] = await self._location(place_given)
                 except StoryboardError as exc:
                     errors.append(f"{where}: {exc}")
             shots_in = sc.get("shots")
@@ -373,6 +395,8 @@ class Storyboard:
                         e.append(f"refs[{k}]: {LIBRARY_OFF}")
                     else:
                         refs.append(img)
+                await self._scene_place(shot, refs, scene.get("location") or
+                                        (existing.get(scene["scene_id"]) or {}).get("location_asset_id"), w, warnings)
                 shot["refs"] = refs
                 place = scene["fields"].get("time_place") or (existing.get(scene["scene_id"]) or {}).get("time_place") or ""
                 # the place and time of day: checked even when the shot has other errors, so one reply lists them all

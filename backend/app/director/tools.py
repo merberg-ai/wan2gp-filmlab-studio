@@ -86,7 +86,9 @@ _PLAN_SCENE = {"type": "object", "required": ["shots"], "properties": {
     "scene_id": {"type": "string", "description": "Add to an existing scene instead of creating one"},
     "title": {"type": "string"}, "goal": {"type": "string", "description": "What the scene is for in the story"},
     "time_place": {"type": "string"}, "mood": {"type": "string"},
-    "location_asset_id": {"type": "string", "description": "The library location this scene is set in"},
+    "location_asset_id": {"type": "string", "description": "The library location this scene is set in, by name: "
+                                                          "{Place_Name}. Each shot that names no place gets its picture "
+                                                          "as the setting"},
     "shots": {"type": "array", "items": _PLAN_SHOT}}}
 
 TOOLS = [

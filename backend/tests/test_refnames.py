@@ -79,3 +79,25 @@ def test_each_plan_part_reports_the_whole_storyboards_length(make_harness, image
     out = run(h, pid, "plan_storyboard", scenes=part("Two"))
     warn = next(w for w in out["warnings"] if "now runs" in w)
     assert "now runs 16 s of the 12 s target (this part: 8 s)" in warn and "over the target already" in warn
+
+
+def test_a_scenes_place_becomes_the_setting_of_shots_that_name_none(make_harness, images):
+    """A small model names the characters and forgets the place (live: 11 of 16 shots): the scene's location is
+    added as the setting of each of its shots that has no place among its pictures."""
+    h = make_harness().login()
+    pid = new_project(h)
+    refs_setup(h, images)
+    out = run(h, pid, "plan_storyboard", scenes=[{"title": "The wait", "time_place": "a trench at dusk",
+                                                  "location_asset_id": "{The Trenh}", "shots": [
+        shot("Hale", "{Corporal Hale} waits at dusk in the trench, fog"),
+        shot("Both", "{Corporal Hale} crouches in {The Trench} at dusk, fog"),
+        shot("Empty", "The empty trench at dusk, fog drifting")]}])
+    assert "error" not in out, out
+    hale, both, empty = h.project(pid)["shots"]
+    assert [r["asset_name"] for r in hale["refs"]] == ["Corporal Hale", "The Trench"]
+    assert hale["prompt"].endswith("Setting: <Picture 2>.")
+    assert [r["asset_name"] for r in both["refs"]] == ["Corporal Hale", "The Trench"] and "Setting:" not in both["prompt"]
+    assert [r["asset_name"] for r in empty["refs"]] == ["The Trench"] and empty["prompt"].endswith("Setting: <Picture 1>.")
+    assert sum("added the scene's place, The Trench" in w for w in out["warnings"]) == 2
+    scene = h.project(pid)["scenes"][0]
+    assert scene["location_asset_id"]  # "{The Trenh}" (a typo, in braces) read as The Trench

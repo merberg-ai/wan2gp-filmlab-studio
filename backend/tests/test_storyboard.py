@@ -78,7 +78,9 @@ def test_plan_writes_scenes_shots_refs_and_rationales_in_order(make_harness, ima
     shots = proj["shots"]
     assert [(s["position"], s["title"]) for s in shots] == [(1, "Waits"), (2, "Fog"), (3, "March")]
     assert [s["scene_id"] for s in shots] == [proj["scenes"][0]["id"]] * 2 + [proj["scenes"][1]["id"]]
-    assert shots[0]["template"] == REF2VA and shots[1]["template"] == FL2VA  # follows the defaults
+    # follows the defaults: the scene's place became the empty "Fog" shot's setting; "March" (no place) has none
+    assert shots[0]["template"] == REF2VA and shots[1]["template"] == REF2VA and shots[2]["template"] == FL2VA
+    assert [r["asset_name"] for r in shots[1]["refs"]] == ["The Trench"] and not shots[2]["refs"]
     assert [r["asset_name"] for r in shots[0]["refs"]] == ["Corporal Hale", "The Trench"]
     assert shots[1]["transition"] == "dissolve" and shots[2]["frames"] == 105  # 4.2 s snapped to the nearest 8n+1
     assert all(s["status"] == "draft" and s["created_by"] == "director" for s in shots)
