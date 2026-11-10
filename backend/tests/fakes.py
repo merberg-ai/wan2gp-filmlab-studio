@@ -410,6 +410,12 @@ class FakeGateway:
                 self.claim_done_early = False
                 return self._sse(text="All planned: 21 shots across 3 scenes, about 60 seconds.")
             return self._sse(text="Done. " + body["messages"][-1]["content"][:60])
+        if "skips this part of my brief" in first["content"]:  # the brief-coverage check asks for a skipped part
+            if getattr(self, "ignore_gap", False):
+                return self._sse(text="It is all there already.")
+            return self._sse(tool=("plan_storyboard", {"scenes": [{"title": "The shell", "shots": [
+                {"title": "Impact", "prompt": "A shell hits the trench at dusk, earth flying", "seconds": 3,
+                 "rationale": "the skipped part", "sound": {"lines": []}}]}]}))
         if "isn't all planned yet" in first["content"]:  # FilmLab's challenge: the next part
             return self._sse(tool=("plan_storyboard", {"scenes": [{"title": "Later scene", "shots": [
                 {"title": "Later", "prompt": "A later wide shot of the trench at night", "seconds": 3,
@@ -525,6 +531,9 @@ class FakeVision:
         self.unloaded: list[str] = []  # models FilmLab asked to unload (keep_alive 0)
         self.who = {"characters": [], "place": "none"}  # castpass's answer: a dict, or a function of the request
         self.who_asked: list[dict] = []
+        self.beats: list[str] | None = None  # coverage's beats of the brief; None: the question isn't answered
+        self.shown = lambda question: {"closest_shot": 1, "shows_it": "no", "answer": "no"}
+        self.shown_asked: list[dict] = []
         self.sticky = False  # a model that won't unload
 
     def transport(self) -> httpx.MockTransport:
@@ -549,7 +558,16 @@ class FakeVision:
             return httpx.Response(200, json={"capabilities": caps}) if caps is not None else httpx.Response(404)
         body = json.loads(request.content)
         self.requests.append(body)
-        if "place" in ((body.get("format") or {}).get("properties") or {}):  # the who-and-where question (castpass)
+        asked = (body.get("format") or {}).get("properties") or {}
+        if "beats" in asked and self.beats is not None:  # the brief's beats (coverage.py)
+            return httpx.Response(200, json={"message": {"role": "assistant", "content": json.dumps({"beats": self.beats})}})
+        if ("closest_shot" in asked or list(asked) == ["answer"]) and self.beats is not None:
+            # which shot is closest to a beat, then whether that shot shows it: a function of the question
+            if "closest_shot" in asked:
+                self.shown_asked.append(body)
+            return httpx.Response(200, json={"message": {"role": "assistant", "content": json.dumps(
+                self.shown(body["messages"][0]["content"]))}})
+        if "place" in asked:  # the who-and-where question (castpass)
             self.who_asked.append(body)
             answer = self.who(body) if callable(self.who) else self.who
             return httpx.Response(200, json={"message": {"role": "assistant", "content": json.dumps(answer)}})

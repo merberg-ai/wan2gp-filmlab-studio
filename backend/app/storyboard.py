@@ -248,6 +248,52 @@ class Storyboard:
         await self.bus.publish("shot.updated", {"shot_id": shot_id}, shot["project_id"])
         return await shots.get_shot(self.db, shot_id)
 
+    async def place_after(self, project_id: str, shot_ids: list[str], anchor_id: str | None, new_scenes: set[str],
+                          actor: str = "system") -> bool:
+        """Put just-planned shots (a plan adds at the end) right after the anchor shot; None: at the film's start.
+        Between two scenes, shots that came as new scenes stay those scenes, moved there; anywhere else they join
+        the scene they land in, and a new scene left empty goes. False when nothing was moved."""
+        order = await self.order(project_id)
+        wanted = set(shot_ids)
+        new = [s for s in order if s in wanted]
+        rest = [s for s in order if s not in wanted]
+        if not new or not rest or (anchor_id and anchor_id not in rest):
+            return False
+        scene_of = {r["id"]: r["scene_id"] for r in await self.db.fetchall(
+            "SELECT id, scene_id FROM shots WHERE project_id = ? AND deleted_at IS NULL", (project_id,))}
+        at = rest.index(anchor_id) + 1 if anchor_id else 0
+        before = scene_of[rest[at - 1]] if at else None
+        after = scene_of[rest[at]] if at < len(rest) else None
+        between = at == 0 or at == len(rest) or before != after
+        ts = now()
+        if between and all(scene_of[s] in new_scenes for s in new):
+            ids = [x["id"] for x in await self.scenes(project_id)]
+            moving = [sid for sid in ids if sid in {scene_of[s] for s in new}]
+            others = [sid for sid in ids if sid not in moving]
+            idx = 0 if at == 0 else others.index(before) + 1 if before in others else len(others)
+            others[idx:idx] = moving
+
+            def write(c):
+                for i, sid in enumerate(others, start=1):
+                    c.execute("UPDATE scenes SET position = ? WHERE id = ?", (i, sid))
+            await self.db.transaction(write)
+            await self.renumber(project_id)
+        else:
+            target = before if at else after
+
+            def write(c):
+                for sid in new:
+                    c.execute("UPDATE shots SET scene_id = ?, updated_at = ? WHERE id = ?", (target, ts, sid))
+                for sid in new_scenes:
+                    if not c.execute("SELECT 1 FROM shots WHERE scene_id = ? AND deleted_at IS NULL", (sid,)).fetchone():
+                        c.execute("UPDATE scenes SET deleted_at = ?, updated_at = ? WHERE id = ?", (ts, ts, sid))
+            await self.db.transaction(write)
+            await self.renumber(project_id, rest[:at] + new + rest[at:])
+            await self.renumber(project_id)  # normalise: one 1..n sequence in scene order
+        await self.db.audit(actor, "storyboard.place", project_id, {"shots": new, "after": anchor_id})
+        await self.bus.publish("shot.updated", {"planned": True}, project_id)
+        return True
+
     async def set_locked(self, shot_id: str, locked: bool, actor: str) -> dict:
         shot = await shots.get_shot(self.db, shot_id)
         await self.db.execute("UPDATE shots SET locked = ?, updated_at = ? WHERE id = ?", (int(locked), now(), shot_id))

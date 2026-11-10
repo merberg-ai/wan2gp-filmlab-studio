@@ -12,13 +12,16 @@ import logging
 
 import httpx
 
+from .. import coverage, shots
 from ..db import Database, new_id, now
 from ..events import EventBus
+from ..storyboard import PLAN_OVERRUN, PLAN_SLACK_S
 from .direct import ASK as DIRECT_ASK
 from .direct import REFUSED as DIRECT_REFUSED
 from .direct import SAVED as DIRECT_SAVED
 from .direct import DirectError, DirectPlanner
 from .gateway import GatewayClient, GatewayError, TurnResult
+from .planning import gap_ask, plan_brief
 from .tools import TOOLS, DirectorTools
 
 log = logging.getLogger("filmlab.director")
@@ -221,6 +224,7 @@ class DirectorChat:
 
         succeeded: set[str] = set()
         nudged = recovered = challenged = False
+        cover: dict = {}  # the brief-coverage check, once the director says the plan is done (see _cover)
         first = messages
         self.tools.plan_parts[project_id] = asked = 0  # plan parts saved in this turn (only the first may replace)
         while True:
@@ -231,6 +235,28 @@ class DirectorChat:
                         await self._save(project_id, "assistant", result.text)
                         await self.bus.publish("chat.message", {"turn_id": turn_id, "role": "assistant",
                                                                 "content": result.text}, project_id)
+                        done = self.tools.plan_parts.get(project_id, 0)
+                        claims_done = "all planned" in (result.text or "").lower()
+                        short = (await self._short_of_target(project_id)
+                                 if claims_done and parts and done and not challenged and not cover and n < rounds - 1
+                                 else None)
+                        wants_next = bool(parts and asked < done < parts and n < rounds - 1 and not claims_done
+                                          and not cover)
+                        if parts and (done or claims_done) and not short and not wants_next:
+                            # The plan is done, says the director: is every part of my brief in it? (live: a battle
+                            # between an entrance and an escape was skipped.) Each gap is asked for on its own.
+                            ask = await self._cover(project_id, turn_id, cover, runs_on, n < rounds - 1)
+                            if ask:
+                                if fresh_parts:
+                                    conversation = f"{base_conversation}:gap{cover['asked']}"
+                                    messages = opening(await plan_brief(self.tools.studio, await self.db.fetchone(
+                                        "SELECT * FROM projects WHERE id = ?", (project_id,)), replace=False, gap=ask))
+                                else:
+                                    messages = [{"role": "user", "content": ask + " When it's saved, reply with one "
+                                                 "line saying what you added."}]
+                                continue
+                            if done or cover.get("checked"):
+                                return  # "All planned" with nothing new to save is right when the brief is covered
                         if expect and expect[0] not in succeeded and not nudged and n < rounds - 1:
                             # Models sometimes describe the result instead of calling the tool: remind it once.
                             nudged = True
@@ -241,27 +267,23 @@ class DirectorChat:
                             await self._fail(project_id, turn_id, f"The director replied without saving {expect[1]} "
                                              f"({expect[0]} never succeeded), so nothing was written. Try again.")
                             return
-                        done = self.tools.plan_parts.get(project_id, 0)
-                        claims_done = "all planned" in (result.text or "").lower()
-                        if claims_done and parts and done and not challenged and n < rounds - 1:
+                        if short:
                             # A small model says "All planned" after one scene (live: 23 s of a 60 s film, "21 shots"
                             # from memory). Short of the target, FilmLab asks once more.
-                            short = await self._short_of_target(project_id)
-                            if short:
-                                challenged, asked = True, done
-                                text_next = (f"The storyboard runs {short[0]:.0f} s of the {short[1]} s target, so my "
-                                             "brief isn't all planned yet. ")
-                                if fresh_parts:
-                                    conversation = f"{base_conversation}:part{done}b"
-                                    messages = opening(text_next + await resume())
-                                else:
-                                    messages = [{"role": "user", "content": text_next + NEXT_PART.format(
-                                        n=done, scenes="; ".join(f"“{t['title']}”" for t in
-                                                                 await self.tools.studio.storyboard.scenes(project_id)) or "none")}]
-                                await self._save(project_id, "note", f"FilmLab asked the director to carry on: it said "
-                                                 f"all planned, but the storyboard runs {short[0]:.0f} s of {short[1]} s.")
-                                continue
-                        if (parts and asked < done < parts and n < rounds - 1 and not claims_done):
+                            challenged, asked = True, done
+                            text_next = (f"The storyboard runs {short[0]:.0f} s of the {short[1]} s target, so my "
+                                         "brief isn't all planned yet. ")
+                            if fresh_parts:
+                                conversation = f"{base_conversation}:part{done}b"
+                                messages = opening(text_next + await resume())
+                            else:
+                                messages = [{"role": "user", "content": text_next + NEXT_PART.format(
+                                    n=done, scenes="; ".join(f"“{t['title']}”" for t in
+                                                             await self.tools.studio.storyboard.scenes(project_id)) or "none")}]
+                            await self._save(project_id, "note", f"FilmLab asked the director to carry on: it said "
+                                             f"all planned, but the storyboard runs {short[0]:.0f} s of {short[1]} s.")
+                            continue
+                        if wants_next:
                             asked = done  # once per saved part: a reply without a new part ends the turn
                             if fresh_parts:
                                 conversation = f"{base_conversation}:part{done}"
@@ -419,6 +441,86 @@ class DirectorChat:
         row = await self.db.fetchone("SELECT COALESCE(SUM(frames - 1), 0) / 24.0 AS s FROM shots WHERE project_id = ? "
                                      "AND deleted_at IS NULL", (project_id,))
         return (row["s"], target) if row["s"] < 0.6 * target else None
+
+    async def _note(self, project_id: str, turn_id: str, msg: str):
+        await self._save(project_id, "note", msg)
+        await self.bus.publish("chat.message", {"turn_id": turn_id, "role": "note", "content": msg}, project_id)
+
+    async def _cover(self, project_id: str, turn_id: str, cover: dict, model: str | None, can_ask: bool) -> str | None:
+        """The brief-coverage check (coverage.py), a step at a time: called whenever a planning turn would end.
+        First it puts the shots the director just added for a gap in their place; the first time it compares the
+        brief with the storyboard; then it returns what to ask the director for the next gap, or None when the
+        turn can end. Trouble here never fails a plan that's saved."""
+        try:
+            return await self._cover_step(project_id, turn_id, cover, model, can_ask)
+        except Exception:  # noqa: BLE001
+            log.exception("brief coverage failed in %s", project_id)
+            cover.update(gaps=[])
+            cover.pop("filling", None)
+            return None
+
+    async def _cover_step(self, project_id, turn_id, cover, model, can_ask) -> str | None:
+        studio = self.tools.studio
+
+        def quoted(gaps):
+            return "; ".join(f"“{b}”" for g in gaps for b in g["beats"])
+
+        filling = cover.pop("filling", None)
+        if filling:
+            new = [s for s in await studio.storyboard.order(project_id) if s not in filling["shots"]]
+            if new:
+                after = filling["gap"].get("after")
+                scenes = {s["id"] for s in await studio.storyboard.scenes(project_id)} - filling["scenes"]
+                await studio.storyboard.place_after(project_id, new, after["id"] if after else None, scenes)
+                rows = [await shots.get_shot(self.db, sid) for sid in new]
+                await self._note(project_id, turn_id, "FilmLab put the added part of your brief in its place: "
+                                 + ", ".join(f"shot {r['position']} “{r['title']}”"
+                                             for r in sorted(rows, key=lambda r: r["position"])) + ".")
+            else:
+                await self._note(project_id, turn_id, "The director didn't add the skipped part of your brief "
+                                 f"({quoted([filling['gap']])}). Add it yourself, or press Plan more.")
+        if "gaps" not in cover:
+            cover.update(gaps=[], asked=0)
+            if not await coverage.applies(studio, project_id, model):
+                return None
+            await self._note(project_id, turn_id, "FilmLab is checking that every part of your brief is in the plan…")
+            result = await coverage.check(studio, project_id, model)
+            if result is None:
+                await self._note(project_id, turn_id, "FilmLab couldn't compare the plan with your brief this time; "
+                                                      "the plan stands as the director wrote it.")
+                return None
+            cover.update(checked=True, gaps=result["gaps"])
+            if not result["gaps"]:
+                await self._note(project_id, turn_id, f"Brief check: all {len(result['beats'])} parts of your brief "
+                                                      "are in the storyboard.")
+                return None
+            await self._note(project_id, turn_id, f"Brief check: the plan skips {quoted(result['gaps'])}. FilmLab is "
+                                                  "asking the director to add what's missing.")
+        if not cover["gaps"]:
+            return None
+        p = await self.db.fetchone("SELECT target_seconds FROM projects WHERE id = ?", (project_id,))
+        row = await self.db.fetchone("SELECT COALESCE(SUM(frames - 1), 0) / 24.0 AS s FROM shots WHERE project_id = ? "
+                                     "AND deleted_at IS NULL", (project_id,))
+        target = (p or {}).get("target_seconds")
+        room = target * PLAN_OVERRUN + PLAN_SLACK_S - row["s"] if target else 10.0
+        stop = None
+        if room < 4:
+            stop = (f"The storyboard already runs {row['s']:.0f} s of the {target} s target, so FilmLab didn't ask for "
+                    "more. Still skipped from your brief: {}. Shorten other shots or raise the target, then press "
+                    "Plan more.")
+        elif not can_ask or cover["asked"] >= coverage.MAX_GAPS:
+            stop = "Still skipped from your brief: {}. Press Plan more to add them."
+        if stop:
+            left, cover["gaps"] = cover["gaps"], []
+            await self._note(project_id, turn_id, stop.format(quoted(left)))
+            return None
+        gap = cover["gaps"].pop(0)
+        if gap.get("after"):  # an earlier gap's shots may have moved it
+            gap["after"] = await shots.get_shot(self.db, gap["after"]["id"])
+        cover["asked"] += 1
+        cover["filling"] = {"gap": gap, "shots": set(await studio.storyboard.order(project_id)),
+                            "scenes": {s["id"] for s in await studio.storyboard.scenes(project_id)}}
+        return gap_ask(gap, min(8.0, room - 1))
 
     async def _run_tools(self, project_id, turn_id, result, succeeded: set | None = None) -> list[dict]:
         """Execute the turn's tool calls; return the follow-up messages for the Gateway."""

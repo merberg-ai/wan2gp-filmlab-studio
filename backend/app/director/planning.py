@@ -114,13 +114,29 @@ async def music_video_rules(s, project: dict) -> list[str]:
     return rules
 
 
-async def plan_brief(s, project: dict, replace: bool) -> str:
+def gap_ask(gap: dict, seconds: float) -> str:
+    """What the director is asked when the brief-coverage check (coverage.py) finds a part of the brief no shot
+    shows: plan just that. FilmLab moves the new shots to where they belong (the director only adds at the end)."""
+    what = "; ".join(f"“{b}”" for b in gap["beats"])
+    a = gap.get("after")
+    where = f"right after shot {a['position']} “{a['title']}”" if a else "at the very start of the film"
+    how = (f"added to that shot's scene (give scene_id {a['scene_id']})"
+           if a and a.get("scene_id") and not gap.get("boundary") else "as ONE new scene")
+    return (f"The storyboard skips this part of my brief: {what}. It belongs {where}. Plan only that now, in ONE "
+            f"plan_storyboard call, {how}: 1-3 shots, about {seconds:.0f} s in all, that show it happening on screen, "
+            "with the same characters, places and style as the shots around it. FilmLab moves the new shots into "
+            "place, so don't change or repeat any existing shot.")
+
+
+async def plan_brief(s, project: dict, replace: bool, gap: str = "") -> str:
+    """gap: the gap_ask text, for a brief that asks only for a skipped part of the brief (in a fresh conversation)."""
     cfg = await s.caps.settings()
     with_refs = project["video_refs_template"] or cfg["video_refs"]
     without = project["video_plain_template"] or cfg["video_plain"]
     target = f"{project['target_seconds']} s" if project["target_seconds"] else "not set (aim for 20-30 s)"
     current = await storyboard_summary(s, project["id"], kept_only=replace)
     lines = [
+        "Add a part of my brief that this project's storyboard skips." if gap else
         "Plan the storyboard for this project from my brief.",
         f"My brief: “{project['brief'].strip()}”",
         *([f"Style for this film (follow it in every shot): {project['style'].strip()}"] if project.get("style") else []),
@@ -131,14 +147,17 @@ async def plan_brief(s, project: dict, replace: bool) -> str:
     ]
     if current:
         lines += ["Current storyboard:", *current]
-        if not replace:
+        if gap:
+            lines.append(gap)
+        elif not replace:
             lines.append("Carry on from it: plan the next one or two scenes of my brief that aren't in the storyboard "
                          "yet, in film order, with the same characters, places and style (don't repeat a scene). If "
                          "every scene of my brief is there, reply starting with “All planned:” instead.")
     lines += [
-        "Plan the film in parts, in film order: each plan_storyboard call holds ONE or TWO scenes (at most 6 shots); "
-        "a call with a whole long film is too much to write at once and fails. After each part is saved FilmLab asks "
-        "for the next. A scene has title, goal, time_place and mood, location_asset_id (the library place it's set "
+        ("A plan_storyboard call holds scenes with their shots. " if gap else
+         "Plan the film in parts, in film order: each plan_storyboard call holds ONE or TWO scenes (at most 6 shots); "
+         "a call with a whole long film is too much to write at once and fails. After each part is saved FilmLab asks "
+         "for the next. ") + "A scene has title, goal, time_place and mood, location_asset_id (the library place it's set "
         "in, by name: {Place_Name}; FilmLab adds that place's picture to each of the scene's shots that names no "
         "other place, so give every scene set in a library place its location), and its shots. Per shot: title; idea (one plain "
         "line of what happens); prompt; seconds (2-10; the whole film near the target: budget the target across my "
@@ -162,7 +181,8 @@ async def plan_brief(s, project: dict, replace: bool) -> str:
          "look, you may request_image a NEW design for it, made for this film's brief and style. "
          if project.get("plan_library") == "none" else
          "If something the story needs isn't in the library, plan the shot without it and request_image it. ") +
-        "Don't request a render. When the whole brief is planned, reply starting with “All planned:” and a short "
-        "summary: scenes, shots, total length, and anything missing.",
+        ("Don't request a render. When it's saved, reply with one line saying what you added." if gap else
+         "Don't request a render. When the whole brief is planned, reply starting with “All planned:” and a short "
+         "summary: scenes, shots, total length, and anything missing."),
     ]
     return "\n".join(lines)
