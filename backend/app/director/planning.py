@@ -130,6 +130,15 @@ def gap_ask(gap: dict, seconds: float) -> str:
 
 async def plan_brief(s, project: dict, replace: bool, gap: str = "") -> str:
     """gap: the gap_ask text, for a brief that asks only for a skipped part of the brief (in a fresh conversation)."""
+    if replace and not gap:
+        # A re-plan with nothing it may replace (every shot has takes, or is locked or approved) is a Plan more:
+        # live, the director was told its plan replaces the drafts, re-planned all 30 s, was refused for running
+        # over the target and squeezed the film in again as four 2 s duplicates.
+        n = await s.db.fetchone(
+            "SELECT COUNT(*) AS shots, SUM(s.status IN ('draft', 'pending_approval') AND NOT s.locked AND NOT EXISTS "
+            "(SELECT 1 FROM takes t WHERE t.shot_id = s.id)) AS free FROM shots s WHERE s.project_id = ? "
+            "AND s.deleted_at IS NULL", (project["id"],))
+        replace = not (n["shots"] and not n["free"])
     cfg = await s.caps.settings()
     with_refs = project["video_refs_template"] or cfg["video_refs"]
     without = project["video_plain_template"] or cfg["video_plain"]

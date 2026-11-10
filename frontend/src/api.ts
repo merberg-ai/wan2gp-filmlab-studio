@@ -305,7 +305,10 @@ export interface DirectorSettings {
   notes: string; reply_style: "short" | "standard" | "detailed"; chat_rounds: number; plan_rounds: number;
   default_autonomy: "A0" | "A1" | "A2" | "A3"; model: string;
 }
-export interface DirectorModel { id: string; name: string; cloud: boolean; size: string | null; vision: boolean }
+export interface DirectorModel {
+  id: string; name: string; cloud: boolean; size: string | null; vision: boolean;
+  gb?: number | null; fits?: boolean | null; vram_gb?: number | null;  // a local model's file size against the GPU's memory
+}
 export interface DirectorTest { ok: boolean; reply: string; seconds: number; error: string | null; model: string | null }
 export interface DirectorOverview {
   settings: DirectorSettings; connected: boolean; agent: string; model: string | null; source: string;

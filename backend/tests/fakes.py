@@ -395,6 +395,8 @@ class FakeGateway:
                 await asyncio.sleep(60)
                 return self._sse(text="too late")
             return hang()
+        if getattr(self, "timeout", False):  # the model never answers (too big for the GPU, on the CPU)
+            raise httpx.ReadTimeout("timed out")
         if getattr(self, "empty_gap", False) and "skips this part of my brief" in body["messages"][0]["content"]:
             err = {"error": {"message": "internal error", "type": "api_error"}}
             return httpx.Response(200, text=f"data: {json.dumps(err)}\n\n", headers={"content-type": "text/event-stream"})

@@ -308,7 +308,21 @@ class DirectorChat:
                         await self._progress(project_id)
                 await self._fail(project_id, turn_id, f"stopped after {rounds} tool rounds")
                 return
-            except (GatewayError, OSError) as exc:
+            except httpx.TimeoutException:
+                # Live: the owner chose a 20 GB local model on a 16 GB GPU; it ran mostly on the CPU, nothing came
+                # back for 5 minutes, and the chat said only "internal error: ReadTimeout".
+                saved = self.tools.plan_parts.get(project_id, 0) if parts else 0
+                local = bool(self.gpu and self.gpu.local(runs_on))
+                log.warning("director turn timed out on %s", runs_on)
+                await self._fail(project_id, turn_id, f"The director's model ({runs_on or 'OpenClaw default'}) didn't "
+                                 "answer within 5 minutes, so FilmLab stopped waiting. "
+                                 + ("A local model too big for this GPU's memory runs mostly on the CPU and is this "
+                                    "slow: choose a smaller one in Settings → Director (it marks the ones that don't "
+                                    "fit). " if local else "Try again; if it keeps happening, check Health. ")
+                                 + (f"The {saved} part(s) of the plan already saved stay." if saved else
+                                    "Nothing was saved." if not succeeded - READ_ONLY else "What was saved before stays."))
+                return
+            except (GatewayError, OSError, httpx.HTTPError) as exc:
                 log.warning("director turn failed: %s", exc)
                 if EMPTY_REPLY not in str(exc):
                     await self._fail(project_id, turn_id, f"director unavailable: {exc}")

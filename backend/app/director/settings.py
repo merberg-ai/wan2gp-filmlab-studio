@@ -9,6 +9,7 @@ Also: read-only views of the installed instructions and the model, a one-turn co
 conversations per project.
 """
 
+import asyncio
 import json
 import re
 import time
@@ -17,6 +18,9 @@ from pathlib import Path
 import httpx
 
 from ..db import new_id
+from ..gpu_stats import nvidia_smi
+
+FITS_SHARE = 0.85  # a local model's file may take this share of the GPU's memory; the rest is its context
 
 KV = "director.settings"
 CONV_KV = "director.conversations"
@@ -40,6 +44,8 @@ class DirectorSettings:
     def __init__(self, db, settings, gateway, ollama_transport=None):
         self.db, self.gateway = db, gateway
         self.ollama_transport = ollama_transport
+        # () -> {"vram_total_gb": ...} | None, to mark local models too big for the GPU; tests set their own
+        self.gpu_query = None if ollama_transport else nvidia_smi
         self.defaults = {"notes": "", "reply_style": "standard", "chat_rounds": settings.director_max_tool_rounds,
                          "plan_rounds": 14, "default_autonomy": "A2", "model": ""}
         self.openclaw_config: Path = settings.openclaw_config
@@ -133,6 +139,8 @@ class DirectorSettings:
     async def models(self) -> list[dict]:
         """Ollama's models that can call tools (the director needs them), cloud first. Read-only."""
         out = []
+        gpu = await asyncio.to_thread(self.gpu_query) if self.gpu_query else None
+        vram = (gpu or {}).get("vram_total_gb")
         try:
             async with httpx.AsyncClient(base_url=OLLAMA_URL, timeout=10, transport=self.ollama_transport) as c:
                 tags = (await c.get("/api/tags")).json().get("models", [])
@@ -146,7 +154,13 @@ class DirectorSettings:
                         continue
                     if "tools" not in caps:
                         continue
-                    out.append({"id": f"ollama/{name}", "name": name, "cloud": bool(t.get("remote_host")),
+                    cloud = bool(t.get("remote_host"))
+                    gb = round((t.get("size") or 0) / 1e9, 1) or None
+                    # A local model's weights plus its context must fit the GPU's memory, or Ollama runs most of it
+                    # on the CPU (live: gemma4:31b, 20.4 GB on 16 GB, answered a test in 42 s and no plan in 5 min).
+                    fits = None if cloud or not gb or not vram else gb <= FITS_SHARE * vram
+                    out.append({"id": f"ollama/{name}", "name": name, "cloud": cloud, "gb": None if cloud else gb,
+                                "fits": fits, "vram_gb": vram,
                                 "size": (t.get("details") or {}).get("parameter_size"), "vision": "vision" in caps})
         except (httpx.HTTPError, ValueError):
             return []

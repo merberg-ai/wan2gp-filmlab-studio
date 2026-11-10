@@ -228,6 +228,10 @@ function DirectorSettings() {
     if (!o) return;
     if (!id) { await save({ model: "" }, "Model"); setTest({ busy: false }); return; }
     const m = models?.find((x) => x.id === id);
+    if (m && m.fits === false && !(await ask(`${m.name} is ${m.gb} GB and this PC's GPU has ${m.vram_gb} GB of memory, `
+      + "so most of it would run on the CPU. That is far too slow for the director: a short test may still answer, but a "
+      + "plan gets no reply within 5 minutes and fails. Pick a model marked as fitting instead.",
+      { confirm: "Use it anyway" }))) return;
     if (m && !m.cloud && !(await ask(`Run the director on ${m.name}, on this PC's GPU? `
       + "It shares the video memory WanGP renders with, so they take turns (Health → GPU sharing): FilmLab unloads it "
       + "before each render, and while WanGP is rendering the director waits for the queue to finish. "
@@ -298,7 +302,8 @@ function DirectorSettings() {
               {models.filter((m) => m.cloud).map((m) => <option key={m.id} value={m.id}>{m.name}{m.size ? ` · ${m.size}` : ""}</option>)}
             </optgroup>}
             {models?.some((m) => !m.cloud) && <optgroup label="Local (uses this PC's GPU)">
-              {models.filter((m) => !m.cloud).map((m) => <option key={m.id} value={m.id}>{m.name}{m.size ? ` · ${m.size}` : ""}</option>)}
+              {models.filter((m) => !m.cloud).map((m) => <option key={m.id} value={m.id}>{m.name}{m.size ? ` · ${m.size}` : ""}
+                {m.gb ? ` · ${m.gb} GB` : ""}{m.fits === false ? " · too big for this GPU" : ""}</option>)}
             </optgroup>}
           </select></label>
         <label><span>Reply style</span>

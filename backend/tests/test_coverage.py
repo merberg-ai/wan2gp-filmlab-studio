@@ -199,3 +199,46 @@ def test_a_speaker_named_in_braces_is_that_character():
     assert not [i for i in _h3_sound_issues(snd, refs, []) if i["level"] == "warn"]
     other = sound.clean_sound({"lines": [{"speaker": "Narrator", "text": "Later."}]})
     assert [i.get("kind") for i in _h3_sound_issues(other, refs, []) if i["level"] == "warn"] == ["speaker"]
+
+
+def test_a_model_that_never_answers_is_said_plainly_and_big_local_models_are_marked(make_harness):
+    """Live: the director was set to gemma4:31b (20.4 GB on a 16 GB GPU); two plans ended in "internal error:
+    ReadTimeout" after 5 minutes. The chat now says what happened, and the model list marks what doesn't fit."""
+    h = make_harness().login()
+    pid = local_project(h)
+    h.gateway.timeout = True
+    assert h.post(f"/api/projects/{pid}/plan", {"replace_drafts": True}).status_code == 202
+    h.wait_for(lambda: not h.project(pid)["director_busy"], what="idle")
+    last = h.c.get(f"/api/projects/{pid}/chat").json()[-1]
+    assert last["role"] == "error" and "ollama/qwen3.5:9b) didn't answer within 5 minutes" in last["content"]
+    assert "too big for this GPU" in last["content"] and "Nothing was saved" in last["content"]
+    h.gateway.timeout = False
+    # the model list: a local model's file against the GPU's memory
+    import httpx
+    tags = {"models": [{"name": "big:31b", "size": 20_400_000_000, "details": {"parameter_size": "30.7B"}},
+                       {"name": "small:9b", "size": 6_600_000_000, "details": {"parameter_size": "9B"}},
+                       {"name": "far:cloud", "size": 400, "remote_host": "https://ollama.com", "details": {}}]}
+    ds = h.studio.director_settings
+    ds.ollama_transport = httpx.MockTransport(lambda r: httpx.Response(
+        200, json=tags if r.url.path == "/api/tags" else {"capabilities": ["tools"]}))
+    ds.gpu_query = lambda: {"vram_total_gb": 16.0}
+    models = {m["name"]: m for m in h.c.get("/api/director/models").json()}
+    assert (models["big:31b"]["fits"], models["big:31b"]["gb"], models["big:31b"]["vram_gb"]) == (False, 20.4, 16.0)
+    assert models["small:9b"]["fits"] is True and models["far:cloud"]["fits"] is None
+
+
+def test_a_replan_with_nothing_to_replace_carries_on_instead(make_harness):
+    """Live: every shot had a take, so Re-plan could replace none; told its plan replaces the drafts, the director
+    planned the whole film again and squeezed it in as 2 s duplicates. Such a re-plan is a Plan more."""
+    from app.director.planning import plan_brief
+    from tests.test_storyboard import run, shot
+    h = make_harness().login()
+    pid = new_project(h)
+    patch(h, f"/api/projects/{pid}", {"brief": BRIEF})
+    project = lambda: h.c.portal.call(h.studio.db.fetchone, "SELECT * FROM projects WHERE id = ?", (pid,))  # noqa: E731
+    assert "Set replace_drafts: true" in h.c.portal.call(plan_brief, h.studio, project(), True)  # an empty storyboard
+    out = run(h, pid, "plan_storyboard", scenes=[{"title": "Dusk", "shots": [shot("Waits", "A soldier waits in a trench at dusk")]}])
+    assert "Set replace_drafts: true" in h.c.portal.call(plan_brief, h.studio, project(), True)  # a draft to replace
+    h.c.portal.call(h.studio.db.execute, "UPDATE shots SET locked = 1 WHERE id = ?", (out["created_shots"][0],))
+    text = h.c.portal.call(plan_brief, h.studio, project(), True)
+    assert "Don't set replace_drafts" in text and "Carry on from it" in text and "shot 1 “Waits”" in text
