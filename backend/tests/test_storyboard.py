@@ -288,7 +288,11 @@ def test_batch_renders_in_storyboard_order_one_at_a_time(make_harness):
     assert h.post(f"/api/projects/{pid}/batches", {"shot_ids": ids}).status_code == 409  # one open batch per project
     b = wait_batch(h, pid, lambda b: b["status"] == "done", "batch done")
     assert [i["status"] for i in b["items"]] == ["done"] * 3
-    jobs = sorted(h.project(pid)["jobs"], key=lambda j: j["submitted_at"])
+    # Submission order is insertion order: with the fake WanGP finishing instantly, millisecond timestamps can tie.
+    order = [r["id"] for r in h.c.portal.call(h.studio.db.fetchall,
+                                              "SELECT id FROM render_jobs WHERE project_id = ? ORDER BY rowid", (pid,))]
+    by_id = {j["id"]: j for j in h.project(pid)["jobs"]}
+    jobs = [by_id[i] for i in order]
     assert [j["shot_id"] for j in jobs] == ids
     for prev, nxt in zip(jobs, jobs[1:]):  # never two at once
         assert nxt["submitted_at"] >= prev["finished_at"]

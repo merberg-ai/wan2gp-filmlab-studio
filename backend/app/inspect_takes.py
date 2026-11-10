@@ -29,6 +29,9 @@ from .media import _run
 
 log = logging.getLogger("filmlab.inspect")
 
+# A local model's context: without one Ollama uses its own default, which for qwen3.5 is 256k tokens and 13.9 GB of
+# VRAM (measured); four frames and the question are about 1.2k tokens, so 16k leaves plenty (6.1 GB).
+VISION_CTX = 16384
 DEFAULTS = {"auto_inspect": True, "vision_model": "gemma4:31b-cloud", "ollama_url": "http://127.0.0.1:11434"}
 # Where the vision check's four keyframes go: nowhere (off), an Ollama model on this PC (local), or an Ollama cloud
 # model (cloud: the frames leave this PC). The technical checks (ffmpeg, on this PC) run in every mode. The mode is the
@@ -376,7 +379,8 @@ class Inspector:
         images = [base64.b64encode(f.read_bytes()).decode() for f in frames]
         async with httpx.AsyncClient(base_url=cfg["ollama_url"], timeout=180, transport=self._transport) as c:
             r = await c.post("/api/chat", json={
-                "model": cfg["vision_model"], "stream": False, "format": VISION_SCHEMA, "options": {"temperature": 0},
+                "model": cfg["vision_model"], "stream": False, "format": VISION_SCHEMA, "think": False,
+                "options": {"temperature": 0, "num_ctx": VISION_CTX},
                 "messages": [{"role": "user", "content": text, "images": images}]})
             r.raise_for_status()
             answer = parse_answer(r.json()["message"]["content"])

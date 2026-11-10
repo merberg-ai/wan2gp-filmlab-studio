@@ -14,6 +14,9 @@ import httpx
 from .settings import OLLAMA_URL
 from .tools import TOOLS
 
+# The same context OpenClaw gives the director (contextTokens in its config): without it Ollama uses the model's own
+# default, 256k tokens for qwen3.5, which nearly fills a 16 GB GPU.
+PLAN_CTX = 32768
 SYSTEM = ("You are FilmLab's film director, planning a storyboard. You answer with JSON only, in the form you are "
           "given: no text around it.")
 ASK = ("\n\nAnswer with JSON only: {\"all_planned\": false, \"plan\": {the arguments of your next plan_storyboard "
@@ -46,7 +49,7 @@ class DirectPlanner:
         """Send text; return the model's answer: {"all_planned": bool, "summary"?: str, "plan"?: {...}}."""
         self.messages.append({"role": "user", "content": text})
         body = {"model": self.model, "messages": self.messages, "stream": False, "think": False,
-                "format": _plan_schema()}
+                "format": _plan_schema(), "options": {"num_ctx": PLAN_CTX}}
         async with httpx.AsyncClient(base_url=OLLAMA_URL, timeout=self.timeout, transport=self.transport) as c:
             resp = await c.post("/api/chat", json=body)
         if resp.status_code != 200:
