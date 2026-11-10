@@ -2,6 +2,7 @@
 current storyboard in one message, so the director can answer with a single plan_storyboard call."""
 
 from .. import refnames
+from ..storyboard import REPLACEABLE
 from .enhance import SETTING_RULE, SOUND_RULE
 
 MAX_ASSETS, MAX_IMAGES = 40, 3
@@ -56,7 +57,7 @@ async def library_section(s, project: dict) -> list[str]:
     return [LIBRARY_FIT, *await library_catalogue(s)]
 
 
-async def storyboard_summary(s, project_id: str) -> list[str]:
+async def storyboard_summary(s, project_id: str, kept_only: bool = False) -> list[str]:
     """The storyboard so far, scene by scene: enough for a part planned in a fresh conversation to carry on (what
     happens in each shot, how long, who's in it) without the earlier parts' conversation."""
     scenes = {x["id"]: x for x in await s.storyboard.scenes(project_id)}
@@ -64,6 +65,8 @@ async def storyboard_summary(s, project_id: str) -> list[str]:
     for sid in await s.storyboard.order(project_id):
         sh = await s.db.fetchone("SELECT * FROM shots WHERE id = ?", (sid,))
         takes = (await s.db.fetchone("SELECT COUNT(*) AS n FROM takes WHERE shot_id = ?", (sid,)))["n"]
+        if kept_only and sh["status"] in REPLACEABLE and not sh["locked"] and not takes:
+            continue  # a re-plan replaces it: listed, a small model took the old plan for the new one ("all planned")
         scene = scenes.get(sh["scene_id"])
         if sh["scene_id"] != scene_id:
             scene_id = sh["scene_id"]
@@ -116,7 +119,7 @@ async def plan_brief(s, project: dict, replace: bool) -> str:
     with_refs = project["video_refs_template"] or cfg["video_refs"]
     without = project["video_plain_template"] or cfg["video_plain"]
     target = f"{project['target_seconds']} s" if project["target_seconds"] else "not set (aim for 20-30 s)"
-    current = await storyboard_summary(s, project["id"])
+    current = await storyboard_summary(s, project["id"], kept_only=replace)
     lines = [
         "Plan the storyboard for this project from my brief.",
         f"My brief: “{project['brief'].strip()}”",

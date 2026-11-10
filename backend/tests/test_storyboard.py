@@ -180,6 +180,8 @@ def test_plan_with_director_sends_the_brief_and_library(make_harness, images):
     assert len(proj["scenes"]) == 3 and all(any(s["scene_id"] == sc["id"] for s in proj["shots"]) for sc in proj["scenes"])
     brief = [m for m in h.c.get(f"/api/projects/{pid}/chat").json() if m["role"] == "user"][-1]["content"]
     assert "Set replace_drafts: true" in brief and "locked" in brief and "Current storyboard:" in brief
+    # only the shots the re-plan keeps are listed: drafts it replaces looked like a finished plan to a small model
+    assert "“Hale waits”" in brief and "“Fog”" not in brief and "“March”" not in brief
     assert [s["title"] for s in proj["shots"]] == ["Hale waits", "Hale waits", "Fog", "March"]
     assert proj["shots"][0]["locked"] is True
 
