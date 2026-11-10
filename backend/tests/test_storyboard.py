@@ -562,6 +562,22 @@ def test_a_local_model_plans_each_part_in_a_fresh_conversation_with_only_plannin
     h.wait_for(lambda: len(h.gateway.requests[-1]["tools"]) > len(PLAN_TOOLS), what="chat with all tools")
 
 
+def test_all_planned_well_short_of_the_target_is_challenged_once(make_harness):
+    """Live: a small model said "All planned: 21 shots, ~60 s" after one 23 s scene. Under 60 % of the target FilmLab
+    asks once more for the rest; a second "All planned" is taken at its word."""
+    h = make_harness().login()
+    pid = new_project(h)
+    patch(h, f"/api/projects/{pid}", {"brief": "A soldier waits in the trench at dusk, then marches away.",
+                                      "target_seconds": 60})
+    h.gateway.claim_done_early = True
+    assert h.post(f"/api/projects/{pid}/plan", {"replace_drafts": True}).status_code == 202
+    proj = h.wait_for(lambda: (p := h.project(pid))["scenes"] and not p["director_busy"] and p, what="planned")
+    assert [s["title"] for s in proj["scenes"]][-1] == "Later scene", proj["scenes"]
+    chat = h.c.get(f"/api/projects/{pid}/chat").json()
+    notes = [m["content"] for m in chat if m["role"] == "note" and "asked the director to carry on" in (m["content"] or "")]
+    assert len(notes) == 1 and "runs 12 s of 60 s" in notes[0]
+
+
 def test_plan_progress_and_stop_keep_the_saved_parts(make_harness):
     h = make_harness().login()
     pid = new_project(h)

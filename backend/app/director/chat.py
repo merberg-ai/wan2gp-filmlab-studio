@@ -220,7 +220,7 @@ class DirectorChat:
             self.bus.publish_ephemeral("chat.delta", {"turn_id": turn_id, "text": chunk}, project_id)
 
         succeeded: set[str] = set()
-        nudged = recovered = False
+        nudged = recovered = challenged = False
         first = messages
         self.tools.plan_parts[project_id] = asked = 0  # plan parts saved in this turn (only the first may replace)
         while True:
@@ -242,8 +242,26 @@ class DirectorChat:
                                              f"({expect[0]} never succeeded), so nothing was written. Try again.")
                             return
                         done = self.tools.plan_parts.get(project_id, 0)
-                        if (parts and asked < done < parts and n < rounds - 1
-                                and "all planned" not in (result.text or "").lower()):
+                        claims_done = "all planned" in (result.text or "").lower()
+                        if claims_done and parts and done and not challenged and n < rounds - 1:
+                            # A small model says "All planned" after one scene (live: 23 s of a 60 s film, "21 shots"
+                            # from memory). Short of the target, FilmLab asks once more.
+                            short = await self._short_of_target(project_id)
+                            if short:
+                                challenged, asked = True, done
+                                text_next = (f"The storyboard runs {short[0]:.0f} s of the {short[1]} s target, so my "
+                                             "brief isn't all planned yet. ")
+                                if fresh_parts:
+                                    conversation = f"{base_conversation}:part{done}b"
+                                    messages = opening(text_next + await resume())
+                                else:
+                                    messages = [{"role": "user", "content": text_next + NEXT_PART.format(
+                                        n=done, scenes="; ".join(f"“{t['title']}”" for t in
+                                                                 await self.tools.studio.storyboard.scenes(project_id)) or "none")}]
+                                await self._save(project_id, "note", f"FilmLab asked the director to carry on: it said "
+                                                 f"all planned, but the storyboard runs {short[0]:.0f} s of {short[1]} s.")
+                                continue
+                        if (parts and asked < done < parts and n < rounds - 1 and not claims_done):
                             asked = done  # once per saved part: a reply without a new part ends the turn
                             if fresh_parts:
                                 conversation = f"{base_conversation}:part{done}"
@@ -391,6 +409,16 @@ class DirectorChat:
         await self.bus.publish("chat.message", {"turn_id": None, "role": "note", "content": msg}, project_id)
         await self.db.audit(actor, "director.fresh_conversation", project_id, {"conversation": n})
         return {"conversation": n}
+
+    async def _short_of_target(self, project_id: str) -> tuple[float, int] | None:
+        """(seconds planned, target) when the storyboard is well short of the film's target (under 60 %), else None."""
+        p = await self.db.fetchone("SELECT target_seconds FROM projects WHERE id = ?", (project_id,))
+        target = (p or {}).get("target_seconds")
+        if not target:
+            return None
+        row = await self.db.fetchone("SELECT COALESCE(SUM(frames - 1), 0) / 24.0 AS s FROM shots WHERE project_id = ? "
+                                     "AND deleted_at IS NULL", (project_id,))
+        return (row["s"], target) if row["s"] < 0.6 * target else None
 
     async def _run_tools(self, project_id, turn_id, result, succeeded: set | None = None) -> list[dict]:
         """Execute the turn's tool calls; return the follow-up messages for the Gateway."""

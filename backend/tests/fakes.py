@@ -406,7 +406,14 @@ class FakeGateway:
         if any(t["function"]["name"] == "propose_asset" for t in body["tools"]) and len(body["tools"]) == 1:
             return self._creator(body)
         if first["role"] == "assistant":  # tool follow-up
+            if getattr(self, "claim_done_early", False):  # says it's all planned after one part (a small model)
+                self.claim_done_early = False
+                return self._sse(text="All planned: 21 shots across 3 scenes, about 60 seconds.")
             return self._sse(text="Done. " + body["messages"][-1]["content"][:60])
+        if "isn't all planned yet" in first["content"]:  # FilmLab's challenge: the next part
+            return self._sse(tool=("plan_storyboard", {"scenes": [{"title": "Later scene", "shots": [
+                {"title": "Later", "prompt": "A later wide shot of the trench at night", "seconds": 3,
+                 "rationale": "the next part", "sound": {"lines": []}}]}]}))
         text = first["content"].lower()
         # a later part in a fresh conversation (a local model), when the test asks for that behaviour
         carry_on = getattr(self, "carry_parts", False) and "carry on from it" in text
