@@ -289,7 +289,8 @@ function BriefPanel({ project, act }: { project: ProjectDetail; act: Act }) {
         <span className="grow" />
         <label className="small" title="The Library is shared by all your projects. A fresh start keeps the director from building this film out of characters, places and props from earlier ones.">Library
           <select value={project.plan_library ?? "fit"}
-            onChange={(e) => act(() => api.updateProject(project.id, { plan_library: e.target.value as "fit" | "none" }))}>
+            onChange={(e) => act(() => api.updateProject(project.id, { plan_library: e.target.value as "fit" | "cast" | "none" }))}>
+            <option value="cast">Only this film's cast ({project.cast.length}: 🎭 Cast in the header)</option>
             <option value="fit">Only what the brief calls for</option>
             <option value="none">Fresh start: don't use it</option>
           </select>

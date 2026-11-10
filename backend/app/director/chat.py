@@ -38,6 +38,8 @@ def project_header(project: dict, body: str = "") -> str:
     if project.get("plan_library") == "none" and "Library: not used" not in body and "doesn't use the Library" not in body:
         head += ("\n[This film doesn't use the shared Library (a fresh start): no existing library assets as "
                  "references, and nothing borrowed from my other projects.]")
+    if project.get("plan_library") == "cast" and "This film's cast" not in body:
+        head += "\n[This film uses only its cast from the Library (list_assets shows them): no other assets.]"
     return head
 
 
@@ -203,6 +205,10 @@ class DirectorChat:
         # conversation) and the brief scrolls out of view: it then plans the rest from memory. Each part
         # after the first goes to a fresh conversation with the brief and what's saved (resume()).
         fresh_parts = bool(parts and resume and self.gpu and self.gpu.local(runs_on))
+        if fresh_parts:
+            # A local model planning with an earlier plan still in its conversation answers "it's already planned"
+            # or re-uses that plan (live): every plan starts clean. The chat's own conversation is untouched.
+            conversation = f"{conversation}:plan:{turn_id[:8]}"
         base_conversation = conversation
 
         def opening(body: str) -> list[dict]:

@@ -26,9 +26,29 @@ LIBRARY_OFF = ("this project doesn't use the Library (the owner chose a fresh st
                "references, or request_image a new design for this film")
 
 
+LIBRARY_CAST = ("that asset isn't in this film's cast (the owner picks the cast in the Cast panel): use a cast "
+                "member, or plan the shot without it")
+
+
+def off_limits_message(project: dict) -> str:
+    return LIBRARY_CAST if project.get("plan_library") == "cast" else LIBRARY_OFF
+
+
+async def cast_ids(db: Database, project: dict) -> set[str] | None:
+    """The assets this film may use: its cast in "cast" mode; None (any) otherwise."""
+    if project.get("plan_library") != "cast":
+        return None
+    return {r["asset_id"] for r in await db.fetchall("SELECT asset_id FROM project_cast WHERE project_id = ?",
+                                                     (project["id"],))}
+
+
 async def library_off_limits(db: Database, project: dict, asset_id: str) -> bool:
     """A fresh-start project (plan_library 'none'): the director may only use assets made since the project began
-    (new designs for this film), never what earlier films left in the shared Library."""
+    (new designs for this film), never what earlier films left in the shared Library. A "cast" project: only the
+    assets the owner picked for it."""
+    allowed = await cast_ids(db, project)
+    if allowed is not None:
+        return asset_id not in allowed
     if project.get("plan_library") != "none":
         return False
     a = await db.fetchone("SELECT created_at FROM assets WHERE id = ?", (asset_id,))
@@ -311,6 +331,7 @@ class Storyboard:
         if len(scenes_in) > MAX_SCENES:
             errors.append(f"at most {MAX_SCENES} scenes")
         existing = {s["id"]: s for s in await self.scenes(project_id)}
+        allowed = await cast_ids(self.db, project)
         out_scenes, total_shots, total_s = [], 0, 0.0
         for i, sc in enumerate(scenes_in[:MAX_SCENES]):
             where = f"scenes[{i}]"
@@ -325,6 +346,14 @@ class Storyboard:
                     errors.append(f"{where}.scene_id isn't a scene of this project")
                 scene["scene_id"] = sc["scene_id"]
             place_given = sc.get("location_asset_id") or sc.get("location")
+            if not place_given and allowed and not sc.get("scene_id"):
+                # the director forgot the scene's place: with a cast, the one cast location its description clearly
+                # names (a small model left every scene without one, live)
+                guess = await refnames.infer_place(self.db, allowed, " ".join(
+                    str(sc.get(k) or "") for k in ("time_place", "title", "goal")))
+                if guess:
+                    place_given = guess["id"]
+                    warnings.append(f"{where}: no location given; set to {guess['name']} from the scene's description")
             if place_given:
                 try:
                     scene["location"] = await self._location(place_given)
@@ -367,7 +396,7 @@ class Storyboard:
                     except shots.ShotError as exc:
                         e.append(str(exc))
                 # {Asset name} in the prompt: FilmLab attaches the images and numbers them (refnames.py)
-                named = await refnames.resolve_prompt(self.db, shot["prompt"], MAX_REFS) if shot.get("prompt") else None
+                named = await refnames.resolve_prompt(self.db, shot["prompt"], MAX_REFS, allowed) if shot.get("prompt") else None
                 if named:
                     shot["prompt"] = named["prompt"]
                     e += named["errors"]
@@ -392,7 +421,7 @@ class Storyboard:
                         e.append(f"refs[{k}] '{fid}' isn't a library image: name the asset in the prompt as "
                                  "{Asset_Name} instead (FilmLab attaches its picture)")
                     elif await library_off_limits(self.db, project, img["asset_id"]):
-                        e.append(f"refs[{k}]: {LIBRARY_OFF}")
+                        e.append(f"refs[{k}]: {off_limits_message(project)}")
                     else:
                         refs.append(img)
                 await self._scene_place(shot, refs, scene.get("location") or

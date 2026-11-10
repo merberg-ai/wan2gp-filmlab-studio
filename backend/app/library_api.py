@@ -249,6 +249,30 @@ async def _body(request: Request) -> bytes:
     return bytes(data)
 
 
+class CastIn(BaseModel):
+    asset_ids: list[str] = Field(default_factory=list, max_length=200)
+
+
+@router.get("/api/projects/{project_id}/cast")
+async def get_cast(project_id: str, request: Request):
+    s = st(request)
+    if not await s.db.fetchone("SELECT 1 FROM projects WHERE id = ? AND deleted_at IS NULL", (project_id,)):
+        raise HTTPException(404, "no such project")
+    return {"cast": await s.library.cast(project_id)}
+
+
+@router.put("/api/projects/{project_id}/cast")
+async def put_cast(project_id: str, body: CastIn, request: Request):
+    """The Cast panel: exactly these assets are the film's cast (in "cast" mode, the only ones the director uses)."""
+    s = st(request)
+    if not await s.db.fetchone("SELECT 1 FROM projects WHERE id = ? AND deleted_at IS NULL", (project_id,)):
+        raise HTTPException(404, "no such project")
+    try:
+        return {"cast": await s.library.set_cast(project_id, body.asset_ids, OWNER)}
+    except LibraryError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.put("/api/library/assets/{asset_id}/voice")
 async def set_voice(asset_id: str, request: Request):
     """Raw-body upload of a character's voice sample."""

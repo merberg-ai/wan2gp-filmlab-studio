@@ -99,6 +99,12 @@ You can also just ask the director in a project chat (*"we need a lab cat"*). It
 Open a project's **Brief** (top of the storyboard), write what the film is about, and press **Plan with director**.
 
 - Mention your Library assets **by name**, the setting, the style, and anything that must happen. Give the **target length**.
+- **🎭 Cast** (a chip in the project header) opens a panel from the right. It sets which Library assets the film uses: characters, locations, props, styles and sounds, with search, a kind filter and **Add all shown**. It also sets what the director may use:
+  - **Only this cast:** the director sees and uses only those assets. When it leaves a scene without a place, FilmLab sets the cast location the scene's description clearly names.
+  - **Whole library, where the brief calls for it.**
+  - **Fresh start:** nothing from the Library.
+
+  Assets you attach to shots join the cast automatically.
 - The director plans **scene by scene**: each scene's goal, time and place and mood, and its shots, each with a prompt, references, length, transition, **sound** and a reason. You can watch every step in the **Director** panel.
 - While it plans, the storyboard shows **how far it got**: the parts saved and the seconds planned against the target, with new scenes appearing as each part is saved. **Stop** ends it there (also in the Director panel, for any reply): the saved scenes stay, and **Plan more** carries on from them.
 - **Re-plan drafts** replaces draft shots that have no takes. Locked, approved and rendered shots always stay. **Plan more** adds after the current shots.

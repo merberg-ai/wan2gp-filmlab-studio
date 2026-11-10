@@ -361,6 +361,27 @@ class Library:
             "AND a.deleted_at IS NULL "
             "ORDER BY a.kind, a.name", (project_id,))
 
+    async def set_cast(self, project_id: str, asset_ids: list[str], actor: str) -> list[dict]:
+        """The owner's cast for a film: exactly these assets (the Cast panel). Unknown or draft assets are refused."""
+        ids = list(dict.fromkeys(str(a) for a in asset_ids))
+        if ids:
+            found = {r["id"] for r in await self.db.fetchall(
+                f"SELECT id FROM assets WHERE id IN ({','.join('?' * len(ids))}) AND deleted_at IS NULL AND draft = 0",
+                tuple(ids))}
+            missing = [a for a in ids if a not in found]
+            if missing:
+                raise LibraryError(f"not library assets: {', '.join(missing[:5])}")
+        ts = now()
+
+        def write(c):
+            c.execute("DELETE FROM project_cast WHERE project_id = ?", (project_id,))
+            for a in ids:
+                c.execute("INSERT INTO project_cast (project_id, asset_id, added_at) VALUES (?, ?, ?)", (project_id, a, ts))
+        await self.db.transaction(write)
+        await self.db.audit(actor, "cast.set", project_id, {"assets": len(ids)})
+        await self.bus.publish("project.updated", {"project_id": project_id}, project_id)
+        return await self.cast(project_id)
+
     async def add_to_cast(self, project_id: str, asset_id: str, actor: str):
         await self.asset(asset_id)
         await self.db.execute("INSERT OR IGNORE INTO project_cast (project_id, asset_id, added_at) VALUES (?, ?, ?)",

@@ -18,7 +18,7 @@ from ..library import MAX_REFS_PER_SHOT, LibraryError
 from ..presets import PresetError
 from ..renders import RenderError
 from ..runs import RunError
-from ..storyboard import LIBRARY_OFF, PlanInvalid, library_off_limits
+from ..storyboard import PlanInvalid, cast_ids, library_off_limits, off_limits_message
 from ..wangp.client import WanGPError
 
 log = logging.getLogger("filmlab.director")
@@ -246,10 +246,25 @@ def _fold_plan(args: dict) -> tuple[dict, list[str]]:
         else:
             scenes[i][k] = v
             fixes.append(f"{k} was outside the scenes, so it went into scenes[{i}]")
+    kept: list[dict] = []
     for n, sc in enumerate(scenes):
-        if not sc.get("scene_id") and not str(sc.get("title") or "").strip():
-            sc["title"] = f"Scene {n + 1}"
-            fixes.append(f"scenes[{n}] had no title, so it is called \"Scene {n + 1}\" (rename it with update_scene)")
+        untitled = not sc.get("scene_id") and not str(sc.get("title") or "").strip()
+        place = sc.get("time_place") or sc.get("location_asset_id") or sc.get("location")
+        if untitled and kept and not place:
+            # A small model writes each shot as its own "scene" (live: 16 one-shot scenes, untitled): an entry with
+            # no title and no place after a scene is that scene going on.
+            kept[-1]["shots"] = list(kept[-1].get("shots") or []) + list(sc.get("shots") or [])
+            fixes.append(f"scenes[{n}] had no title and no place, so its shots joined the scene before it "
+                         "(a scene holds several shots)")
+            continue
+        if untitled:
+            goal = " ".join(str(sc.get("goal") or "").split()).rstrip(".")
+            title = " ".join(goal.split()[:7]) if goal else f"Scene {n + 1}"
+            sc["title"] = title[:1].upper() + title[1:]
+            fixes.append(f"scenes[{n}] had no title, so it is called \"{sc['title']}\" (rename it with update_scene)")
+        kept.append(sc)
+    args["scenes"] = kept
+    for n, sc in enumerate(kept):
         for m, sh in enumerate(sc.get("shots") or []):
             if isinstance(sh, dict):
                 fixes += _fold_sound(sh, f"scenes[{n}].shots[{m}]")
@@ -377,7 +392,13 @@ class DirectorTools:
                 {k: a[k] for k in ("id", "kind", "name", "description", "tags", "reasons", "on_shot", "look")}
                 for a in res["assets"]]}
         rows = await self.library.search(query, kind, limit=50)
-        return {"assets": [{k: a[k] for k in ("id", "kind", "name", "description", "tags", "variant_count")} for a in rows]}
+        project = await self.db.fetchone("SELECT * FROM projects WHERE id = ?", (project_id,))
+        allowed = await cast_ids(self.db, project) if project else None
+        if allowed is not None:  # a film with a picked cast sees only its cast
+            rows = [a for a in rows if a["id"] in allowed]
+        out = {"assets": [{k: a[k] for k in ("id", "kind", "name", "description", "tags", "variant_count")} for a in rows]}
+        return out | ({"note": "This film uses only its cast (the owner's choice): these are all you may use."}
+                      if allowed is not None else {})
 
     async def list_presets(self, project_id):
         return {"presets": [{k: p[k] for k in ("id", "name", "template", "resolution", "seconds", "frames", "refs", "use",
@@ -411,7 +432,7 @@ class DirectorTools:
         for r in refs:
             v = await self.db.fetchone("SELECT asset_id FROM variants WHERE id = ?", (r["variant_id"],))
             if v and await library_off_limits(self.db, project, v["asset_id"]):
-                raise ValueError(LIBRARY_OFF)
+                raise ValueError(off_limits_message(project))
         result = await self.library.set_shot_refs(shot, refs, self.ACTOR, rationale)
         await self.studio.refs.sync_template_soon(shot, len(result))
         await shots.refs_changed(self.db, self.bus, shot, self.ACTOR)
@@ -484,9 +505,11 @@ class DirectorTools:
                              "shot, remove its reference with assign_refs first (the prompt alone doesn't remove "
                              "it). Nothing was saved; call it again with the fixed prompt")
 
-    async def _named(self, prompt) -> dict | None:
+    async def _named(self, prompt, project_id=None) -> dict | None:
         """{Asset names} in a prompt (refnames.py): the prompt with <Picture N>, and the refs to attach."""
-        named = await refnames.resolve_prompt(self.db, str(prompt or ""), MAX_REFS_PER_SHOT)
+        project = await self.db.fetchone("SELECT * FROM projects WHERE id = ?", (project_id,)) if project_id else None
+        allowed = await cast_ids(self.db, project) if project else None
+        named = await refnames.resolve_prompt(self.db, str(prompt or ""), MAX_REFS_PER_SHOT, allowed)
         if named and named["errors"]:
             raise ValueError("; ".join(named["errors"]) + ". Nothing was saved")
         return named
@@ -499,7 +522,7 @@ class DirectorTools:
 
     async def draft_shot(self, project_id, template=None, scene_id=None, rationale="", **fields):
         fields.pop("idea", None)  # the idea is the owner's own words
-        named = await self._named(fields.get("prompt")) if fields.get("prompt") else None
+        named = await self._named(fields.get("prompt"), project_id) if fields.get("prompt") else None
         if named:
             fields["prompt"] = named["prompt"]
         if scene_id:
@@ -524,7 +547,7 @@ class DirectorTools:
         before = await shots.snapshot(self.db, shot_id)
         if "prompt" in fields:
             await self._says_its_setting(shot["scene_id"], fields["prompt"])
-            named = await self._named(fields["prompt"])
+            named = await self._named(fields["prompt"], project_id)
             if named:  # the named assets become the shot's references, in order
                 fields["prompt"] = named["prompt"]
                 attached = await self._attach_named(project_id, shot_id, named, rationale)

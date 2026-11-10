@@ -5,6 +5,7 @@ import { type Capability, lib, templateLabel } from "./library-api";
 import { AUTONOMY } from "./Autonomy";
 import { ResolutionPicker } from "./ResolutionPicker";
 import { MusicVideoSetupModal, setupDismissed } from "./MusicVideo";
+import { CastPanel } from "./CastPanel";
 
 type Act = (fn: () => Promise<unknown>) => Promise<void>;
 type Section = "basics" | "shots" | "models" | "director" | "danger";
@@ -20,6 +21,7 @@ export function ProjectSettings({ project, act }: { project: ProjectDetail; act:
   const [open, setOpen] = useState<Section | null>(null);
   // A new music-video project opens its setup by itself (until it's set up or put off with "Not now").
   const [music, setMusic] = useState(false);
+  const [cast, setCast] = useState(false);
   const musical = project.template === "music_video" || !!project.music_mode;
   useEffect(() => {
     if (project.template === "music_video" && !project.music_mode && !setupDismissed(project.id)) setMusic(true);
@@ -36,6 +38,11 @@ export function ProjectSettings({ project, act }: { project: ProjectDetail; act:
       {chip("shots", "New shots", `${project.default_resolution} · ${secsFor(project.default_frames)} s`)}
       {chip("director", "Director autonomy", project.autonomy ?? "A2")}
       {chip("models", "Video models", models.length ? models.map(short).join(" / ") : "studio models")}
+      <button type="button" className={`chip setting-chip ${project.plan_library === "cast" ? "cast-on" : ""}`}
+        title="The characters, locations, props and styles this film uses from the Library" onClick={() => setCast(true)}>
+        🎭 {project.plan_library === "cast" ? `Cast only · ${project.cast.length}` : project.plan_library === "none"
+          ? "Fresh start" : `Cast · ${project.cast.length}`}</button>
+      {cast && <CastPanel project={project} onClose={() => setCast(false)} onSaved={() => act(async () => undefined)} />}
       {musical && <button type="button" className="chip setting-chip" title="Music video: the song and how the shots follow it"
         onClick={() => setMusic(true)}>🎵 {project.music_mode === "lipsync" ? "Lip-sync" : project.music_mode === "soundtrack"
           ? "Soundtrack" : "Set up the song"}</button>}

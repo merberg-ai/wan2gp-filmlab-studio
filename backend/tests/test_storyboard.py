@@ -47,7 +47,7 @@ def test_invalid_plan_reports_every_error_and_writes_nothing(make_harness, image
         shot("Two pictures", "<Picture 1> meets <Picture 2> in the trench", refs=[hale]),          # names a missing picture
         shot("Too long", "A very long held shot of the trench", seconds=50),                        # over 20 s
         shot("Bad cut", "Fog over the trench at dusk", transition="wipe")]},                       # unknown transition
-        {"title": "", "shots": []}])                                                     # untitled (named for it), empty
+        {"title": "", "time_place": "the trench at night", "shots": []}])               # untitled (named for it), empty
     out = run(h, pid, "plan_storyboard", **bad)
     errs = "\n".join(out["errors"])
     assert "the plan wasn't written" in out["error"]
@@ -482,6 +482,23 @@ def test_empty_reply_is_retried_once_in_a_fresh_conversation(make_harness):
     assert any("started a fresh director conversation" in m["content"] for m in chat if m["role"] == "note")
 
 
+def test_one_shot_untitled_scenes_join_the_scene_before(make_harness):
+    """Live (a local model): every shot written as its own untitled "scene". An entry with no title and no place
+    continues the scene before it; one that starts a call is named from its goal."""
+    h = make_harness().login()
+    pid = new_project(h)
+    out = run(h, pid, "plan_storyboard", scenes=[
+        {"title": "Approach", "time_place": "deep space at night", "shots": [shot("Ship", "A ship crosses deep space at night")]},
+        {"goal": "the crew watches", "shots": [shot("Crew", "The crew watch the stars in deep space at night")]},
+        {"goal": "they land on the planet", "time_place": "a rocky plateau at dawn",
+         "shots": [shot("Land", "The ship lands on a rocky plateau at dawn")]}])
+    assert "error" not in out, out
+    proj = h.project(pid)
+    assert [s["title"] for s in proj["scenes"]] == ["Approach", "They land on the planet"]
+    assert [s["scene_id"] for s in proj["shots"]] == [proj["scenes"][0]["id"]] * 2 + [proj["scenes"][1]["id"]]
+    assert any("joined the scene before it" in f for f in out["fixed_by_filmlab"])
+
+
 def test_plan_with_scene_fields_outside_the_scene_and_a_location_by_name(make_harness):
     """gemma wrote time_place beside "scenes", left the scene untitled and named the location instead of
     giving its id; FilmLab repairs those and says what it changed."""
@@ -494,7 +511,7 @@ def test_plan_with_scene_fields_outside_the_scene_and_a_location_by_name(make_ha
     out = run(h, pid, "plan_storyboard", **args, time_place="Evening, Jim's lab")
     assert "error" not in out, out
     scene = h.project(pid)["scenes"][0]
-    assert (scene["title"], scene["time_place"], scene["location_asset_id"]) == ("Scene 1", "Evening, Jim's lab", loc["id"])
+    assert (scene["title"], scene["time_place"], scene["location_asset_id"]) == ("Wake the android", "Evening, Jim's lab", loc["id"])
     assert any("time_place" in f for f in out["fixed_by_filmlab"]) and any("title" in f for f in out["fixed_by_filmlab"])
 
 
@@ -531,7 +548,8 @@ def test_a_local_model_plans_each_part_in_a_fresh_conversation_with_only_plannin
     assert [s["title"] for s in proj["scenes"]][-2:] == ["Later scene 1", "Later scene 2"] and len(proj["shots"]) == 5
     plans = [r for r in h.gateway.requests if r["messages"][0]["role"] == "user"]
     convs = [r["user"] for r in plans]
-    assert convs[0].endswith(pid) and convs[1].endswith(":part1") and convs[2].endswith(":part2")
+    # a clean conversation for the plan (an earlier plan in the chat's conversation confused it), then one per part
+    assert ":plan:" in convs[0] and pid in convs[0] and convs[1].endswith(":part1") and convs[2].endswith(":part2")
     later = plans[2]["messages"][0]["content"]
     assert "My brief: “A soldier waits" in later and "Carry on from it" in later and "Planned so far:" in later
     assert "Later scene 1" in later  # the storyboard so far, scene by scene

@@ -47,9 +47,9 @@ def _ref(asset: dict, img: dict) -> dict:
             "kind": asset["kind"], "caption": img.get("caption") or ""}
 
 
-async def find_asset(db: Database, name: str) -> tuple[dict | None, str | None, list[str]]:
-    """(asset, repair note, suggestions) for a name as the director wrote it."""
-    assets = await _assets(db)
+async def find_asset(db: Database, name: str, allowed: set[str] | None = None) -> tuple[dict | None, str | None, list[str]]:
+    """(asset, repair note, suggestions) for a name as the director wrote it; among `allowed` assets if given."""
+    assets = [a for a in await _assets(db) if allowed is None or a["id"] in allowed]
     want = _norm(name)
     exact = [a for a in assets if _norm(a["name"]) == want]
     if exact:
@@ -81,7 +81,7 @@ async def pick_image(db: Database, asset: dict, view: str | None) -> tuple[dict 
     return _ref(asset, imgs[0]), f"{asset['name']} has no view “{v}” (views: {views}); used its first image"
 
 
-async def resolve_prompt(db: Database, prompt: str, max_refs: int) -> dict | None:
+async def resolve_prompt(db: Database, prompt: str, max_refs: int, allowed: set[str] | None = None) -> dict | None:
     """None when the prompt names no asset; else {prompt, refs, notes, errors}: refs in picture order."""
     tokens = list(TOKEN.finditer(prompt or ""))
     if not tokens:
@@ -96,10 +96,11 @@ async def resolve_prompt(db: Database, prompt: str, max_refs: int) -> dict | Non
     for m in tokens:
         raw = m.group(1).strip()
         name, _, view = raw.partition("/")
-        asset, note, suggest = await find_asset(db, name)
+        asset, note, suggest = await find_asset(db, name, allowed)
         if not asset:
             hint = f"; did you mean {', '.join('{' + s + '}' for s in suggest)}?" if suggest else ""
-            errors.append(f"{{{raw}}} isn't a library asset{hint} (name assets exactly as the library lists them)")
+            where = "in this film's cast" if allowed is not None else "a library asset"
+            errors.append(f"{{{raw}}} isn't {where}{hint} (name assets exactly as the list shows them)")
             continue
         if note:
             notes.append(note)
@@ -118,6 +119,36 @@ async def resolve_prompt(db: Database, prompt: str, max_refs: int) -> dict | Non
     if len(refs) > max_refs:
         errors.append(f"the prompt names {len(refs)} different pictures; at most {max_refs} per shot")
     return {"prompt": "".join(out), "refs": refs, "notes": notes, "errors": errors}
+
+
+_STOP = {"the", "a", "an", "of", "in", "on", "at", "and", "to", "near", "with", "from", "into", "toward", "towards"}
+
+
+def _words(text: str) -> list[str]:
+    return [w for w in re.findall(r"[a-z0-9]+", str(text or "").lower()) if w not in _STOP]
+
+
+async def infer_place(db: Database, allowed: set[str], text: str) -> dict | None:
+    """The one cast location a scene's description clearly names, else None. Words every cast name shares (the
+    film's prefix, e.g. "heavy metal") don't count; a name word counts when the text has it inside a longer word
+    ("ship" in "spaceship"). The best needs two matched words, half its name, and no tie."""
+    cast = await db.fetchall(f"SELECT id, name, kind FROM assets WHERE id IN ({','.join('?' * len(allowed))}) "
+                             "AND deleted_at IS NULL", tuple(allowed)) if allowed else []
+    places = [a for a in cast if a["kind"] == "location"]
+    if not places or not text.strip():
+        return None
+    common = {w for w in _words(cast[0]["name"]) if sum(w in _words(a["name"]) for a in cast) > len(cast) / 2}
+    said = _words(text)
+    scored = []
+    for p in places:
+        own = [w for w in _words(p["name"]) if w not in common] or _words(p["name"])
+        hit = sum(1 for w in own if any(w == s or (len(w) >= 4 and w in s) for s in said))
+        scored.append((hit, hit / len(own), p))
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    best = scored[0]
+    if best[0] < 2 or best[1] < 0.5 or (len(scored) > 1 and scored[1][:2] == best[:2]):
+        return None
+    return best[2]
 
 
 async def lenient_image(db: Database, value) -> tuple[dict | None, str | None]:

@@ -224,7 +224,7 @@ export interface ProjectDetail extends Project {
   autonomy: "A0" | "A1" | "A2" | "A3"; inspections: Record<string, Inspection>; redo: RedoState;
   template: string | null; style: string;
   /** How Plan with director and Enhance use the shared Library: only what fits the brief, or not at all. */
-  plan_library?: "fit" | "none";
+  plan_library?: "fit" | "cast" | "none";
   music_mode?: MusicMode | null; song_file_id?: string | null; lyrics?: string; song_style?: string;
   speech_template?: string | null;
   shots: Shot[]; jobs: Job[]; takes: Take[]; approvals: Approval[]; director_busy: boolean; last_event_id: number;
@@ -346,7 +346,7 @@ export const api = {
   createShot: (pid: string, s: Partial<Shot>) => request<Shot>("POST", `/api/projects/${pid}/shots`, s),
   updateShot: (id: string, s: Partial<Shot>) => request<Shot>("PATCH", `/api/shots/${id}`, s),
   updateProject: (id: string, p: { title?: string; logline?: string; default_resolution?: string; default_frames?: number;
-    brief?: string; target_seconds?: number | null; autonomy?: string; style?: string | null; plan_library?: "fit" | "none" }) =>
+    brief?: string; target_seconds?: number | null; autonomy?: string; style?: string | null; plan_library?: "fit" | "cast" | "none" }) =>
     request<ProjectDetail>("PATCH", `/api/projects/${id}`, p),
   deleteProject: (id: string) => request("DELETE", `/api/projects/${id}`),
   deleteShot: (id: string) => request("DELETE", `/api/shots/${id}`),
@@ -445,6 +445,7 @@ export const api = {
     request<{ batches: number; jobs: number }>("POST", `/api/projects/${projectId}/renders/cancel-all`),
   chat: (pid: string) => request<ChatMessage[]>("GET", `/api/projects/${pid}/chat`),
   sendChat: (pid: string, text: string) => request<{ turn_id: string }>("POST", `/api/projects/${pid}/chat`, { text }),
+  setCast: (pid: string, assetIds: string[]) => request<{ cast: unknown[] }>("PUT", `/api/projects/${pid}/cast`, { asset_ids: assetIds }),
   storybook: (pid: string) => request<Storybook>("GET", `/api/projects/${pid}/storybook`),
   patchStorybook: (pid: string, patch: Partial<Omit<BookDoc, "panels" | "cover">> & {
     cover?: Partial<BookDoc["cover"]>; panels?: Record<string, Partial<BookPanelDoc>>; note?: string }) =>

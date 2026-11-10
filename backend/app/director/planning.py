@@ -11,11 +11,13 @@ PLAN_TOOLS = ["plan_storyboard", "get_project", "list_assets", "get_asset", "upd
               "request_image"]
 
 
-async def library_catalogue(s) -> list[str]:
+async def library_catalogue(s, only: set[str] | None = None) -> list[str]:
     """Each asset by name with its views, the way prompts name them ({Name} or {Name/view}): no image ids to copy
     (a small model mangles 32-character ids; refnames.py turns the names into pictures)."""
     lines = []
-    for a in (await s.library.search("", None, limit=MAX_ASSETS)):
+    for a in (await s.library.search("", None, limit=200 if only is not None else MAX_ASSETS)):
+        if only is not None and a["id"] not in only:
+            continue
         full = await s.library.asset(a["id"])
         desc = " ".join((full["description"] or "").split())[:160]
         imgs = await refnames._images(s.db, full["id"])
@@ -38,9 +40,19 @@ LIBRARY_NONE = ("Library: not used for this film (my choice: a fresh start). Don
                 "comes from the brief above.")
 
 
+LIBRARY_CAST = ("This film's cast (the owner picked these; use only these, and every one the brief calls for; name "
+                "them in a prompt as written here, e.g. {Name} or {Name/view}). Give each scene set in one of these "
+                "places its location_asset_id:")
+
+
 async def library_section(s, project: dict) -> list[str]:
     if project.get("plan_library") == "none":
         return [LIBRARY_NONE]
+    if project.get("plan_library") == "cast":
+        ids = {r["asset_id"] for r in await s.db.fetchall("SELECT asset_id FROM project_cast WHERE project_id = ?",
+                                                          (project["id"],))}
+        return [LIBRARY_CAST, *(await library_catalogue(s, ids) if ids else
+                                ["- (no cast picked yet: plan shots without references)"])]
     return [LIBRARY_FIT, *await library_catalogue(s)]
 
 

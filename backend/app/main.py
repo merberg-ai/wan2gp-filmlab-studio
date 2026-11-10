@@ -394,7 +394,7 @@ class ProjectIn(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     logline: str = Field(default="", max_length=1000)
     template: str | None = Field(default=None, max_length=40)
-    plan_library: str = Field(default="fit", pattern="^(fit|none)$")  # "none": a fresh start, no shared Library
+    plan_library: str = Field(default="fit", pattern="^(fit|cast|none)$")  # "cast": only its cast; "none": fresh start
 
 
 class ProjectPatch(BaseModel):
@@ -407,7 +407,7 @@ class ProjectPatch(BaseModel):
     autonomy: str | None = Field(default=None, pattern="^A[0-3]$")
     style: str | None = Field(default=None, max_length=2000)
     # How Plan with director and Enhance use the shared Library: "fit" (only what the brief calls for) or "none".
-    plan_library: str | None = Field(default=None, pattern="^(fit|none)$")
+    plan_library: str | None = Field(default=None, pattern="^(fit|cast|none)$")
 
 
 class RenderIn(BaseModel):
