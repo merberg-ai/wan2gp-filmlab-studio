@@ -516,6 +516,8 @@ class FakeVision:
         self.requests: list[dict] = []
         self.loaded: list[dict] = []  # what /api/ps reports
         self.unloaded: list[str] = []  # models FilmLab asked to unload (keep_alive 0)
+        self.who = {"characters": [], "place": "none"}  # castpass's answer: a dict, or a function of the request
+        self.who_asked: list[dict] = []
         self.sticky = False  # a model that won't unload
 
     def transport(self) -> httpx.MockTransport:
@@ -540,6 +542,10 @@ class FakeVision:
             return httpx.Response(200, json={"capabilities": caps}) if caps is not None else httpx.Response(404)
         body = json.loads(request.content)
         self.requests.append(body)
+        if "place" in ((body.get("format") or {}).get("properties") or {}):  # the who-and-where question (castpass)
+            self.who_asked.append(body)
+            answer = self.who(body) if callable(self.who) else self.who
+            return httpx.Response(200, json={"message": {"role": "assistant", "content": json.dumps(answer)}})
         if self.fail:
             return httpx.Response(503, json={"error": "model unavailable"})
         answer = self.answers.pop(0) if self.answers else self.answer

@@ -49,9 +49,12 @@ def test_a_scene_without_a_place_gets_the_cast_location_it_names(make_harness, i
              ("location", "Heavy_Metal_Ancient_Alien_Weapons_Factory_Interior"), ("location", "Heavy_Metal_Outlaw_Ship_Interior"),
              ("location", "Heavy_Netal_Alien_Planet_Surface"), ("location", "Heavy_Metal_Alien_Planet_Orbit")]
     ids = {}
-    for n, (kind, name) in enumerate(names):
+    pictures = {"Heavy_Metal_Antihero": 0, "Heavy_Metal_Ancient_Alien_Weapons_Factory_Interior": 1,
+                "Heavy_Metal_Outlaw_Ship_Interior": 2}  # distinct files: the library stores identical ones once
+    for kind, name in names:
         a = asset(h, kind, name)
-        upload(h, default_variant(a), images[n % 3])
+        if name in pictures:
+            upload(h, default_variant(a), images[pictures[name]])
         ids[name] = a["id"]
     patch(h, f"/api/projects/{pid}", {"plan_library": "cast"})
     put_cast(h, pid, list(ids.values()))
@@ -69,6 +72,39 @@ def test_a_scene_without_a_place_gets_the_cast_location_it_names(make_harness, i
     assert by["Cockpit"]["location_asset_id"] == ids["Heavy_Metal_Outlaw_Ship_Interior"]  # "ship" in "spaceship"
     assert not by["Approach"]["location_asset_id"]  # orbit and surface tie on "alien planet": not guessed
     fight = next(s for s in proj["shots"] if s["title"] == "Fight")
-    assert [r["asset_name"] for r in fight["refs"]] == ["Heavy_Metal_Antihero", "Heavy_Metal_Ancient_Alien_Weapons_Factory_Interior"]
+    # with a cast the scene's place isn't pasted onto every shot (a broad scene spans several places): the
+    # who-and-where pass picks each shot's place (test below)
+    assert [r["asset_name"] for r in fight["refs"]] == ["Heavy_Metal_Antihero"]
     assert any("set to Heavy_Metal_Ancient_Alien_Weapons_Factory_Interior from the scene's description" in w
                for w in out["warnings"])
+
+
+def test_who_and_where_attaches_the_cast_each_new_shot_shows(make_harness, images):
+    """A small director describes "the soldier" without naming the asset: after the part is saved FilmLab asks the
+    model, per shot, which cast members and place it shows (a list to pick from) and attaches them."""
+    h = make_harness().login()
+    pid = new_project(h)
+    hale, trench, hv, tv = refs_setup(h, images)
+    patch(h, f"/api/projects/{pid}", {"plan_library": "cast"})
+    put_cast(h, pid, [hale["id"], trench["id"]])
+    assert h.c.put("/api/director/settings", json={"model": "ollama/qwen3.5:9b"},
+                   headers={"x-csrf-token": h.csrf}).status_code == 200
+    h.vision.who = lambda body: ({"characters": ["Corporal Hale"], "place": "The Trench"}
+                                 if "Waits" in body["messages"][0]["content"] else {"characters": [], "place": "none"})
+    out = run(h, pid, "plan_storyboard", scenes=[{"title": "Dusk", "time_place": "a trench at dusk", "shots": [
+        shot("Waits", "The soldier waits in the trench at dusk, fog"),
+        shot("Sky", "Grey clouds roll over at dusk, wind")]}])
+    assert "error" not in out, out
+    waits, sky = h.project(pid)["shots"]
+    assert [r["asset_name"] for r in waits["refs"]] == ["Corporal Hale", "The Trench"]
+    assert waits["prompt"].endswith("<Picture 1> is Corporal Hale. Setting: <Picture 2>.")
+    assert not sky["refs"] and sky["prompt"] == "Grey clouds roll over at dusk, wind"  # nothing to add
+    asked = h.vision.who_asked[0]
+    assert asked["model"] == "qwen3.5:9b" and asked["format"]["properties"]["place"]["enum"] == ["The Trench", "none"]
+    assert "Corporal Hale" in asked["messages"][0]["content"] and len(h.vision.who_asked) == 2
+    assert out["who_and_where"] == ["shot 1 “Waits”: added Corporal Hale, The Trench"]
+    # Without a cast, no question is asked.
+    patch(h, f"/api/projects/{pid}", {"plan_library": "fit"})
+    run(h, pid, "plan_storyboard", scenes=[{"title": "More", "time_place": "a trench at night", "shots": [
+        shot("Night", "The soldier waits in the trench at night, fog")]}])
+    assert len(h.vision.who_asked) == 2

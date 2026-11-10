@@ -10,7 +10,7 @@ import logging
 
 import httpx
 
-from .. import library_context, refnames, shots
+from .. import castpass, library_context, refnames, shots
 from ..capabilities import setting_error, setting_problem, picture_problem
 from ..db import new_id, now
 from ..edit import EditError
@@ -574,7 +574,15 @@ class DirectorTools:
             project_id, {"scenes": scenes, "logline": logline, "replace_drafts": replace_drafts}, self.ACTOR)
         if project_id in self.plan_parts:  # counted only inside a chat turn (the chat resets and clears it)
             self.plan_parts[project_id] = part + 1
-        return result | {"message": "Written as draft shots. Nothing renders until the owner starts it."}
+        extra = {}
+        if await cast_ids(self.db, await self.db.fetchone("SELECT * FROM projects WHERE id = ?", (project_id,))):
+            # a film with a cast: who and where in each new shot, picked from the cast (castpass.py)
+            settings = self.studio.director_settings
+            model = (await settings.get()).get("model") or settings.model().get("model")
+            notes = await castpass.who_and_where(self.studio, project_id, result["created_shots"], model)
+            if notes:
+                extra["who_and_where"] = notes
+        return result | extra | {"message": "Written as draft shots. Nothing renders until the owner starts it."}
 
     async def update_scene(self, project_id, scene_id, **fields):
         return {"scene": await self.studio.storyboard.update_scene(scene_id, fields, self.ACTOR, project_id)}

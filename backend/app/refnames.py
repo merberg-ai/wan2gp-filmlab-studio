@@ -137,7 +137,8 @@ async def infer_place(db: Database, allowed: set[str], text: str) -> dict | None
     places = [a for a in cast if a["kind"] == "location"]
     if not places or not text.strip():
         return None
-    common = {w for w in _words(cast[0]["name"]) if sum(w in _words(a["name"]) for a in cast) > len(cast) / 2}
+    every = {w for a in cast for w in _words(a["name"])}  # from all names: the first may be a typo ("Heavy_Netal")
+    common = {w for w in every if sum(w in _words(a["name"]) for a in cast) > len(cast) / 2}
     said = _words(text)
     scored = []
     for p in places:

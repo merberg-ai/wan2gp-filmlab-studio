@@ -424,8 +424,9 @@ class Storyboard:
                         e.append(f"refs[{k}]: {off_limits_message(project)}")
                     else:
                         refs.append(img)
-                await self._scene_place(shot, refs, scene.get("location") or
-                                        (existing.get(scene["scene_id"]) or {}).get("location_asset_id"), w, warnings)
+                if allowed is None:  # with a cast, the who-and-where pass picks each shot's place (castpass.py)
+                    await self._scene_place(shot, refs, scene.get("location") or
+                                            (existing.get(scene["scene_id"]) or {}).get("location_asset_id"), w, warnings)
                 shot["refs"] = refs
                 place = scene["fields"].get("time_place") or (existing.get(scene["scene_id"]) or {}).get("time_place") or ""
                 # the place and time of day: checked even when the shot has other errors, so one reply lists them all
