@@ -1357,3 +1357,21 @@ button.busy-show::after { content: ""; position: absolute; top: 50%; left: 50%; 
   border-top-color: var(--busy-ink, var(--accent)); animation: spin .7s linear infinite; visibility: visible; }
 button.small.busy-show::after { width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; }
 @media (prefers-reduced-motion: reduce) { button.busy-show::after { animation-duration: 2s; } }
+
+/* Library list pane: one column that never grows past the panel; filters wrap; link actions look like buttons */
+.lib-list { grid-template-columns: minmax(0, 1fr); align-content: start; }
+.lib-list > * { min-width: 0; }
+.lib-kinds { gap: 4px; }
+.lib-kinds button { padding: 3px 9px; }
+.button-link.primary { background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent); font-weight: 600; }
+.button-link.primary:hover { filter: brightness(1.08); }
+.button-link.ghost { border: 1px solid var(--line); color: var(--text); background: transparent; }
+.button-link.ghost:hover { background: var(--glass-hi); border-color: var(--glass-edge); }
+.new-asset { flex-wrap: nowrap; gap: 6px; }
+.new-asset select { width: auto; flex: 0 0 auto; max-width: 42%; }
+.new-asset input { flex: 1 1 auto; min-width: 0; width: auto; }
+.new-asset button { flex: none; }
+.new-asset-error { flex-basis: 100%; }
+.new-asset:has(.new-asset-error) { flex-wrap: wrap; }
+.asset-row > span { min-width: 0; }
+.asset-row strong { overflow-wrap: anywhere; }

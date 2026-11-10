@@ -31,7 +31,7 @@ export function LibraryPage({ assetId, subscribe }: { assetId: string | null; su
       <section className="panel lib-list">
         <div className="panel-head"><h2>Library</h2></div>
         <input type="search" placeholder="Search names, tags, captions" value={q} onChange={(e) => setQ(e.target.value)} />
-        <div className="row small">
+        <div className="row small lib-kinds" role="group" aria-label="Show">
           {(["", ...KINDS] as const).map((k) => (
             <button key={k} className={`ghost small ${kind === k ? "on" : ""}`} onClick={() => setKind(k)}>
               {k ? KIND_LABEL[k] + "s" : "All"}
@@ -75,13 +75,13 @@ function NewAsset({ onCreated }: { onCreated: (a: AssetDetail) => void }) {
     catch (err) { setError((err as Error).message); }
   };
   return (
-    <form className="row" onSubmit={submit}>
+    <form className="row new-asset" onSubmit={submit} aria-label="Add an asset yourself">
       <select value={kind} onChange={(e) => setKind(e.target.value as AssetKind)} aria-label="Kind">
         {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
       </select>
-      <input className="grow" placeholder="New asset name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />
+      <input placeholder="New asset name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />
       <button className="primary" disabled={!name.trim()}>Add</button>
-      {error && <span className="error small block">{error}</span>}
+      {error && <span className="error small new-asset-error">{error}</span>}
     </form>
   );
 }
