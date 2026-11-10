@@ -47,6 +47,7 @@ def test_book_follows_storyboard_and_pins_takes(make_harness):
                             "panels": {a["id"]: {"take_id": p["new_take_id"], "t": None, "narration": "  Dawn.  "}}})
     assert r.status_code == 200, r.text
     bk = r.json()
+    assert bk["exports"] == [] and "writer" in bk  # every change answers like GET (the page reads exports)
     assert bk["pages"] == [{"chapter": None, "shot_ids": [a["id"], b["id"]]}]
     assert bk["panels"][0]["narration"] == "Dawn." and bk["panels"][0]["new_take_id"] is None
     assert bk["doc"]["cover"]["author"] == "Jim"

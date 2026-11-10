@@ -1346,3 +1346,14 @@ button.sb-sheet:hover, .sb-panel:hover { outline: 2px solid var(--accent); outli
   .sb-story img { width: 100%; }
   .sb-toolbar .primary, .sb-toolbar > .ghost { flex: 1; }
 }
+
+/* Busy buttons (busy.ts): the clicked button waits for its request; after a moment a spinner in its own colour
+   replaces the label, at the same size, so nothing shifts */
+button.is-busy { pointer-events: none; cursor: progress; }
+button.busy-show { position: relative; box-sizing: border-box; font-size: 0 !important; color: transparent !important; }
+button.busy-show * { visibility: hidden; }
+button.busy-show::after { content: ""; position: absolute; top: 50%; left: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  border-radius: 50%; border: 2px solid color-mix(in srgb, var(--busy-ink, var(--accent)) 28%, transparent);
+  border-top-color: var(--busy-ink, var(--accent)); animation: spin .7s linear infinite; visibility: visible; }
+button.small.busy-show::after { width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; }
+@media (prefers-reduced-motion: reduce) { button.busy-show::after { animation-duration: 2s; } }

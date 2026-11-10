@@ -2,6 +2,7 @@
  *  can't report upload progress, so these go through XMLHttpRequest. */
 import { useEffect, useState } from "react";
 import { ApiError, csrfHeaders } from "./api";
+import { track } from "./busy";
 
 export interface Upload { id: number; name: string; loaded: number; total: number }
 
@@ -25,7 +26,7 @@ export function sendFile<T>(method: string, url: string, file: File): Promise<T>
   const id = next++;
   changed([...uploads, { id, name: file.name, loaded: 0, total: file.size }]);
   const done = () => changed(uploads.filter((u) => u.id !== id));
-  return new Promise<T>((resolve, reject) => {
+  return track(new Promise<T>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open(method, url);
     xhr.withCredentials = true;
@@ -45,5 +46,5 @@ export function sendFile<T>(method: string, url: string, file: File): Promise<T>
     xhr.onerror = () => { done(); reject(new ApiError(0, `${file.name}: the upload didn't reach FilmLab (connection lost)`)); };
     xhr.onabort = () => { done(); reject(new ApiError(0, `${file.name}: upload cancelled`)); };
     xhr.send(file);
-  });
+  }));
 }

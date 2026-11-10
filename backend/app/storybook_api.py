@@ -31,12 +31,17 @@ class BookPatch(BaseModel):
     note: str = ""
 
 
+async def full(s, project_id: str, view: dict | None = None) -> dict:
+    """The book as the cockpit shows it: every route that changes it answers with the same shape as GET."""
+    view = view or await s.storybook.view(project_id)
+    return view | {"writer": s.story_writer.plan(project_id), "exports": await s.storybook.exports(project_id)}
+
+
 @router.get("/api/projects/{project_id}/storybook")
 async def get_book(project_id: str, request: Request):
     s = st(request)
     await live_project(s, project_id)
-    return await s.storybook.view(project_id) | {"writer": s.story_writer.plan(project_id),
-                                                 "exports": await s.storybook.exports(project_id)}
+    return await full(s, project_id)
 
 
 @router.patch("/api/projects/{project_id}/storybook")
@@ -44,8 +49,8 @@ async def patch_book(project_id: str, body: BookPatch, request: Request):
     s = st(request)
     await live_project(s, project_id)
     try:
-        return await s.storybook.update(project_id, body.model_dump(exclude_none=True, exclude={"note"}), OWNER,
-                                        body.note or "edited the book")
+        return await full(s, project_id, await s.storybook.update(
+            project_id, body.model_dump(exclude_none=True, exclude={"note"}), OWNER, body.note or "edited the book"))
     except (StorybookError, ValueError, TypeError) as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -55,7 +60,7 @@ async def restore_book(project_id: str, revision_id: str, request: Request):
     s = st(request)
     await live_project(s, project_id)
     try:
-        return await s.storybook.restore(project_id, revision_id, OWNER)
+        return await full(s, project_id, await s.storybook.restore(project_id, revision_id, OWNER))
     except StorybookError as exc:
         raise HTTPException(404, str(exc)) from exc
 
@@ -117,7 +122,7 @@ async def apply_story(project_id: str, body: WriteApplyIn, request: Request):
     s = st(request)
     await live_project(s, project_id)
     try:
-        return await s.story_writer.apply(project_id, body.texts, body.title, body.subtitle, OWNER)
+        return await full(s, project_id, await s.story_writer.apply(project_id, body.texts, body.title, body.subtitle, OWNER))
     except (StorybookError, ValueError) as exc:
         raise HTTPException(422, str(exc)) from exc
 

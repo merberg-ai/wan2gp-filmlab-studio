@@ -1,4 +1,5 @@
 import type { Crop } from "./library-api";
+import { track } from "./busy";
 // Typed client for the FilmLab backend. Mutations carry the CSRF token.
 
 import type { Asset, Issue, ShotRef } from "./library-api";
@@ -279,7 +280,12 @@ let csrf: string | null = null;
 
 export const csrfHeaders = (): Record<string, string> => (csrf ? { "X-CSRF-Token": csrf } : {});
 
-export async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+/** Every API call; one started by a button click shows on that button (busy.ts). */
+export function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+  return track(send<T>(method, url, body));
+}
+
+async function send<T>(method: string, url: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (method !== "GET" && csrf) headers["X-CSRF-Token"] = csrf;
