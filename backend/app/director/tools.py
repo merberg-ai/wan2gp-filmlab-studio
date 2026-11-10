@@ -579,7 +579,12 @@ class DirectorTools:
             # a film with a cast: who and where in each new shot, picked from the cast (castpass.py)
             settings = self.studio.director_settings
             model = (await settings.get()).get("model") or settings.model().get("model")
-            notes = await castpass.who_and_where(self.studio, project_id, result["created_shots"], model)
+            try:  # the plan is saved: nothing here may make the tool report a failure (live, it did)
+                notes = await castpass.who_and_where(self.studio, project_id, result["created_shots"], model)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("who-and-where failed in %s", project_id)
+                notes = [f"who-and-where couldn't run ({type(exc).__name__}); the shots keep the references they "
+                         "were planned with"]
             if notes:
                 extra["who_and_where"] = notes
         return result | extra | {"message": "Written as draft shots. Nothing renders until the owner starts it."}

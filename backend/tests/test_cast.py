@@ -108,3 +108,25 @@ def test_who_and_where_attaches_the_cast_each_new_shot_shows(make_harness, image
     run(h, pid, "plan_storyboard", scenes=[{"title": "More", "time_place": "a trench at night", "shots": [
         shot("Night", "The soldier waits in the trench at night, fog")]}])
     assert len(h.vision.who_asked) == 2
+
+
+def test_who_and_where_trouble_never_fails_a_saved_plan(make_harness, images):
+    """Live: the pass's prompt update was refused and the error made plan_storyboard report a failure for a plan it had
+    saved (the director then re-sent it again and again). Now the shot is put back as planned and the plan stands."""
+    h = make_harness().login()
+    pid = new_project(h)
+    hale, trench, hv, tv = refs_setup(h, images)
+    patch(h, f"/api/projects/{pid}", {"plan_library": "cast"})
+    put_cast(h, pid, [hale["id"], trench["id"]])
+    h.c.put("/api/director/settings", json={"model": "ollama/qwen3.5:9b"}, headers={"x-csrf-token": h.csrf})
+    h.vision.who = {"characters": ["Corporal Hale"], "place": "The Trench"}
+
+    async def refuse(*a, **k):
+        raise ValueError("refused for the test")
+    h.studio.tools.update_shot = refuse
+    out = run(h, pid, "plan_storyboard", scenes=[{"title": "Dusk", "time_place": "a trench at dusk", "shots": [
+        shot("Waits", "The soldier waits in the trench at dusk, fog")]}])
+    assert "error" not in out and len(out["created_shots"]) == 1, out
+    assert "couldn't add Corporal Hale, The Trench (refused for the test)" in out["who_and_where"][0]
+    s = h.project(pid)["shots"][0]
+    assert not s["refs"] and s["prompt"] == "The soldier waits in the trench at dusk, fog"  # as planned, nothing unnamed

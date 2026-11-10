@@ -104,15 +104,33 @@ async def who_and_where(studio, project_id: str, shot_ids: list[str], model: str
                 new.append((a, img))
         if not new:
             continue
-        start = len(refs) + 1
-        people_line = ", ".join(f"<Picture {start + k}> is {a['name'].replace('_', ' ')}"
-                                for k, (a, _) in enumerate(new) if a["kind"] != "location")
-        place_line = next((f"Setting: <Picture {start + k}>." for k, (a, _) in enumerate(new) if a["kind"] == "location"), "")
-        prompt = " ".join(x for x in (str(shot["prompt"]).rstrip(), f"{people_line}." if people_line else "", place_line) if x)
-        all_refs = [{"variant_id": r["variant_id"], "file_id": r["file_id"], "role": r["role"]} for r in refs] + \
-                   [{"variant_id": img["variant_id"], "file_id": img["file_id"]} for _, img in new]
+        before = [{"variant_id": r["variant_id"], "file_id": r["file_id"], "role": r["role"]} for r in refs]
+        all_refs = before + [{"variant_id": img["variant_id"], "file_id": img["file_id"]} for _, img in new]
         why = "who and where: " + ", ".join(a["name"] for a, _ in new)
-        await studio.tools.assign_refs(project_id, sid, all_refs, why)
-        await studio.tools.update_shot(project_id, sid, prompt=prompt, rationale=why)
+        try:
+            await studio.tools.assign_refs(project_id, sid, all_refs, why)
+            # Picture numbers from the references as attached (not counted beforehand), so the prompt always names
+            # exactly the shot's pictures.
+            pos = {r["file_id"]: r["position"] for r in await studio.library.shot_refs(sid)}
+            people_line = ", ".join(f"<Picture {pos[img['file_id']]}> is {a['name'].replace('_', ' ')}"
+                                    for a, img in new if a["kind"] != "location" and img["file_id"] in pos)
+            place_line = next((f"Setting: <Picture {pos[img['file_id']]}>." for a, img in new
+                               if a["kind"] == "location" and img["file_id"] in pos), "")
+            prompt = " ".join(x for x in (str(shot["prompt"]).rstrip(), f"{people_line}." if people_line else "",
+                                          place_line) if x)
+            await studio.tools.update_shot(project_id, sid, prompt=prompt, rationale=why)
+        except Exception as exc:  # noqa: BLE001 - one shot's trouble never fails the plan that's already saved
+            log.warning("who-and-where on shot %s failed: %s", sid, exc)
+            try:  # never leave pictures the prompt doesn't name
+                if before:
+                    await studio.tools.assign_refs(project_id, sid, before, "who and where: undone")
+                else:
+                    await studio.library.set_shot_refs(await shots.get_shot(studio.db, sid), [], "director",
+                                                       "who and where: undone")
+            except Exception:  # noqa: BLE001
+                log.exception("couldn't undo who-and-where on shot %s", sid)
+            notes.append(f"shot {shot['position']} “{shot['title']}”: couldn't add "
+                         f"{', '.join(a['name'] for a, _ in new)} ({str(exc)[:160]})")
+            continue
         notes.append(f"shot {shot['position']} “{shot['title']}”: added {', '.join(a['name'] for a, _ in new)}")
     return notes
