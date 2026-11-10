@@ -65,3 +65,17 @@ def test_update_and_draft_shot_attach_named_assets(make_harness, images):
     assert s["prompt"] == "<Picture 1> at dawn, empty, rain" and [r["asset_name"] for r in s["refs"]] == ["The Trench"]
     out = run(h, pid, "update_shot", shot_id=sid, prompt="{Nobody} at dawn", rationale="x")
     assert "isn't a library asset" in out["error"] and h.project(pid)["shots"][0]["prompt"].startswith("<Picture 1> at dawn")
+
+
+def test_each_plan_part_reports_the_whole_storyboards_length(make_harness, images):
+    h = make_harness().login()
+    pid = new_project(h)
+    h.c.patch(f"/api/projects/{pid}", json={"target_seconds": 12}, headers={"x-csrf-token": h.csrf})
+    part = lambda t: [{"title": t, "time_place": "a trench at dusk", "shots": [
+        shot(f"{t} {n}", "A soldier waits in a trench at dusk, fog", 4) for n in (1, 2)]}]
+    out = run(h, pid, "plan_storyboard", scenes=part("One"))
+    assert out["storyboard_seconds"] == 8 and any("now runs 8 s of the 12 s target (this part: 8 s)" in w
+                                                   for w in out["warnings"])
+    out = run(h, pid, "plan_storyboard", scenes=part("Two"))
+    warn = next(w for w in out["warnings"] if "now runs" in w)
+    assert "now runs 16 s of the 12 s target (this part: 8 s)" in warn and "over the target already" in warn

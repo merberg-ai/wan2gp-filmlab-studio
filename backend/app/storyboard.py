@@ -399,9 +399,6 @@ class Storyboard:
             errors.append(f"at most {MAX_SHOTS} shots")
         if errors:
             raise PlanInvalid(errors)
-        target = project.get("target_seconds")
-        if target and not 0.5 * target <= total_s <= 1.5 * target:
-            warnings.append(f"the plan runs {total_s:.0f} s against a target of {target} s")
         return {"logline": _text(plan.get("logline"), 300, "logline", []), "scenes": out_scenes,
                 "replace_drafts": bool(plan.get("replace_drafts")), "warnings": warnings,
                 "total_seconds": round(total_s, 1), "shot_count": total_shots}
@@ -495,8 +492,21 @@ class Storyboard:
         await self.db.audit(actor, "storyboard.plan", project_id, {"scenes": len(created_scenes), "shots": len(created_shots),
                                                                    "replaced": [s["id"] for s in replaced]})
         await self.bus.publish("shot.updated", {"planned": True}, project_id)
-        return {"created_scenes": len(created_scenes), "created_shots": created_shots, "warnings": p["warnings"],
-                "total_seconds": p["total_seconds"],
+        # The whole storyboard's length, not this part's: a plan in parts compared each part with the film's target
+        # and ran long (live: 96 s of a 60 s target, the director miscounting from part totals).
+        row = await self.db.fetchone("SELECT COALESCE(SUM(frames - 1), 0) / 24.0 AS s FROM shots WHERE project_id = ? "
+                                     "AND deleted_at IS NULL", (project_id,))
+        film = round(row["s"], 1)
+        warnings = list(p["warnings"])
+        target = project.get("target_seconds")
+        if target:
+            length = f"The storyboard now runs {film:.0f} s of the {target} s target (this part: {p['total_seconds']:.0f} s)."
+            if film > 1.1 * target:
+                length += (" It's over the target already: keep any remaining scenes very short (one or two 2-4 s "
+                           "shots), or, if the brief is covered, the plan is done.")
+            warnings.append(length)
+        return {"created_scenes": len(created_scenes), "created_shots": created_shots, "warnings": warnings,
+                "total_seconds": p["total_seconds"], "storyboard_seconds": film,
                 "replaced": [f"shot {s['position']} “{s['title']}”" for s in replaced],
                 "kept": [f"shot {s['position']} “{s['title']}” ({'locked' if s['locked'] else s['status']}"
                          f"{', has takes' if s['takes'] else ''})" for s in kept]}
