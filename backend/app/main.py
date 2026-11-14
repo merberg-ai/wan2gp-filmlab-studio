@@ -44,6 +44,7 @@ from .inspect_takes import Inspector
 from .runs import Runs
 from .storyboard import Storyboard, StoryboardError
 from .trash import Trash, TrashError
+from .tuning import Tuning
 from .music_video import MusicVideo, MusicVideoError
 from .wangp.webui import WanGPWebUI
 from .host import Host
@@ -125,6 +126,8 @@ class Studio:
         self.refs = References(self.db, self.wangp, self.library, self.renders)
         self.caps = Capabilities(self.db, self.wangp, settings.data_dir, self.refs.wangp_id_for_path)
         self.refs.caps = self.caps
+        self.tuning = Tuning(self.db, self.wangp, self.renders)
+        self.renders.tuning = self.tuning
         self.renders.prepare_shot = self._prepare_shot
         self.renders.reupload_refs = self.refs.reupload
         self.renders.reupload_voices = self._reupload_voices

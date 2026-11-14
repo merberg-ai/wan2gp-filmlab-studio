@@ -6,9 +6,10 @@ import { AUTONOMY } from "./Autonomy";
 import { ResolutionPicker } from "./ResolutionPicker";
 import { MusicVideoSetupModal, setupDismissed } from "./MusicVideo";
 import { CastPanel } from "./CastPanel";
+import { GenerationSettings } from "./GenerationSettings";
 
 type Act = (fn: () => Promise<unknown>) => Promise<void>;
-type Section = "basics" | "shots" | "models" | "director" | "danger";
+type Section = "basics" | "shots" | "models" | "generation" | "director" | "danger";
 type Autonomy = ProjectDetail["autonomy"];
 const framesFor = (secs: number) => Math.round(Math.round(secs * 24) / 8) * 8 + 1;
 const secsFor = (frames: number) => Number(((frames - 1) / 24).toFixed(1));
@@ -166,6 +167,10 @@ function SettingsModal({ project, act, section, onClose }: {
     </select>
   );
   const reg = (s: Section) => (el: HTMLElement | null) => { sections.current[s] = el; };
+  // the models this project renders with (its own choice, else the studio's), for their generation settings
+  const tuned = [{ use: "shots with references", template: f.refs || defaults?.video_refs || "" },
+    { use: "shots without references", template: f.plain || defaults?.video_plain || "" }]
+    .filter((t, i, all) => t.template && all.findIndex((x) => x.template === t.template) === i);
 
   return (
     <div ref={backdrop} className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) cancel(); }}>
@@ -198,6 +203,12 @@ function SettingsModal({ project, act, section, onClose }: {
             <label>Shots with references{modelSelect(f.refs, (v) => setF({ ...f, refs: v }), defaults?.video_refs, (c) => c.refs !== "none")}</label>
             <label>Shots without references{modelSelect(f.plain, (v) => setF({ ...f, plain: v }), defaults?.video_plain, (c) => c.task === "gen_video")}</label>
             {caps === null && <p className="muted small">Loading WanGP's models…</p>}
+          </section>
+          <section ref={reg("generation")}>
+            <h4>Generation (advanced)</h4>
+            <p className="muted small">This project's own values for what WanGP's Advanced mode offers: inference steps,
+              guidance, sampler, step skipping, LoRAs and more. Each model lists only the settings it has.</p>
+            <GenerationSettings projectId={project.id} templates={tuned} />
           </section>
           <section ref={reg("director")}>
             <h4>Director</h4>

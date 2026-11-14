@@ -26,15 +26,21 @@ ALLOWED: dict[str, set[str | None]] = {
     "wangp_session": {"get_job", "wait_jobs", "cancel_job", "list_queue", "create_file_download",
                       "create_gallery_upload"},  # uploads go to FilmLab's own workspace gallery
     "wangp_toolbox": {"media_settings"},  # read-only: the settings that produced a gallery item
+    # read-only: a model's default settings, its definition (which settings it has, their ranges) and its LoRAs,
+    # for the project's generation settings (tuning.py)
+    "wangp_model": {"defaults", "definition", "loras"},
 }
 # Per-action argument allowlists, where an action could otherwise reach beyond the gallery.
 # media_settings also accepts `path`, which would read arbitrary files: only media ids pass.
 ALLOWED_ARGS: dict[tuple[str, str], set[str]] = {
     ("wangp_toolbox", "media_settings"): {"media_id"},
     ("wangp_session", "create_gallery_upload"): {"filename"},
+    ("wangp_model", "defaults"): set(),
+    ("wangp_model", "definition"): set(),
+    ("wangp_model", "loras"): {"cursor"},
 }
 # Catalogue tools reject agent_context ("Unknown argument"); they are workspace-independent.
-NO_CONTEXT = {"wangp_templates"}
+NO_CONTEXT = {"wangp_templates", "wangp_model"}
 
 
 class WanGPError(RuntimeError):

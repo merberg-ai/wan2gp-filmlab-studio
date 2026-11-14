@@ -176,8 +176,48 @@ class FakeWanGP:
              "media_inputs": {"image": img, **({"audio": ["prompt"]} if a.get("task", "").startswith("gen_video") else {})}}
             for name, mt, img, default in rows]}
 
+    def wangp_model(self, a):
+        """A model's defaults, definition and LoRAs, shaped like the real server's (probed 2026-11): the distilled
+        H3 PDD and LTX models lock their steps; the H3 Turbo model doesn't and has several samplers."""
+        mt, action = a["model_type"], a.get("action")
+        h3, pdd, ltx = mt.startswith("minimax_h3"), mt.endswith("_pdd"), mt.startswith("ltx2")
+        if action == "loras":
+            return {"status": "done", "loras": ["grain_v1.safetensors", "style/noir.safetensors"] if h3 else [],
+                    "has_more": False, "next_cursor": None}
+        if action == "defaults":
+            d = {"num_inference_steps": 8 if pdd or ltx else 20, "force_fps": "", "repeat_generation": 1,
+                 "spatial_upsampling": "", "temporal_upsampling": "", "activated_loras": [], "loras_multipliers": "",
+                 "sliding_window_size": 362 if h3 else 129, "sliding_window_overlap": 18 if h3 else 5,
+                 "model_type": mt}
+            if h3:
+                d |= {"sample_solver": "euler", "flow_shift": 12.0, "skip_steps_cache_type": ""}
+            else:
+                d |= {"negative_prompt": "", "NAG_scale": 1}
+            if not h3 and not ltx:
+                d |= {"guidance_scale": 1, "sample_solver": "unipc", "flow_shift": 5}
+            return d
+        if action == "definition":
+            m = {"sliding_window": True, "frames_steps": 17 if h3 else 4,
+                 "sliding_window_defaults": {"window_min": 124, "window_max": 481, "window_step": 17, "overlap_min": 1,
+                                             "overlap_max": 120, "overlap_step": 17} if h3 else {}}
+            if h3:
+                m |= {"lock_inference_steps": pdd, "flow_shift": True, "no_negative_prompt": True,
+                      "first_block_cache": True, "spectrum_cache": True, "guidance_max_phases": 1, "visible_phases": 0,
+                      "skip_steps_multiplier_choices": [["Low (0.06)", 0.06], ["Balanced (0.08)", 0.08]],
+                      "sample_solvers": [["Euler", "euler"]] if pdd else [["Euler", "euler"], ["RES Multistep", "res_multistep"]]}
+            elif ltx:
+                m |= {"lock_inference_steps": True, "NAG": True, "guidance_max_phases": 2, "visible_phases": 0}
+            else:
+                m |= {"NAG": True, "flow_shift": True, "guidance_max_phases": 3, "mag_cache": True,
+                      "sample_solvers": [["unipc", "unipc"], ["euler", "euler"]]}
+            return m
+        raise _ToolError(f"wangp_model: unknown action {action}")
+
     def wangp_validate(self, a):
         s = a["settings"]
+        if s.get("sliding_window_overlap", 0) >= s.get("sliding_window_size", 10 ** 6):
+            return {"valid": False, "diagnostics": [{"severity": "error", "message":
+                    "sliding_window_overlap must be smaller than sliding_window_size"}], "tasks": [{}]}
         _, name = TEMPLATE_OF.get(s.get("model_type"), ("gen_video", "LTX-2 2.3 Distilled 1.0"))
         diags, valid = [], True
         undeclared = set(s.get("custom_settings") or {}) - ({"audio_refinement"} if s.get("model_type") == "minimax_h3_ref2va_pruned" else set())

@@ -104,6 +104,16 @@ export interface SuggestedLook { variant_id: string; name: string; version: numb
 export interface Suggestion extends Asset { score: number; reasons: string[]; on_shot: boolean; look: SuggestedLook | null }
 export interface Suggestions { context: { shot: string | null; scene: string | null; words: string[] }; assets: Suggestion[] }
 
+/** One generation setting a video model offers (WanGP's Advanced mode), as the backend's tuning.py describes it. */
+export type TuningValue = number | string | string[];
+export type TuningValues = Record<string, TuningValue>;
+export interface TuningField {
+  key: string; label: string; group: string; kind: "int" | "number" | "choice" | "text" | "loras"; help: string;
+  default: TuningValue | null; locked: string | null; min?: number | null; max?: number | null; step?: number;
+  choices?: { label: string; value: number | string }[];
+}
+export interface Tuning { template: string; model_type: string; fields: TuningField[]; values: TuningValues }
+
 export const lib = {
   search: (q = "", kind = "") => request<Asset[]>("GET", `/api/library?q=${encodeURIComponent(q)}&kind=${kind}`),
   suggest: (shotId: string, q = "") =>
@@ -175,6 +185,10 @@ export const lib = {
   updateSettings: (s: Partial<TemplateSettings>) => request<TemplateSettings>("PUT", "/api/settings/templates", s),
   projectModels: (pid: string, m: { video_refs_template?: string; video_plain_template?: string }) =>
     request("PATCH", `/api/projects/${pid}/models`, m),
+  tuning: (pid: string, template: string) =>
+    request<Tuning>("GET", `/api/projects/${pid}/tuning?template=${encodeURIComponent(template)}`),
+  saveTuning: (pid: string, template: string, values: TuningValues) =>
+    request<Tuning>("PUT", `/api/projects/${pid}/tuning`, { template, values }),
   setShotRefs: (shotId: string, refs: { variant_id: string; file_id?: string; role?: string }[]) =>
     request<ShotRef[]>("PUT", `/api/shots/${shotId}/refs`, { refs }),
   shotChecks: (shotId: string) => request<ShotChecks>("GET", `/api/shots/${shotId}/checks`),

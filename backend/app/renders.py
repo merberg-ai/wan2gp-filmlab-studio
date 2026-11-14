@@ -124,6 +124,7 @@ class RenderService:
         self.workspace: dict | None = None
         self.on_finish = None  # async (job, status) -> None, set by the batch runner
         self.listeners: list = []  # more async (job, status) -> None: redo runs, take inspection
+        self.tuning = None  # Tuning (tuning.py), set by Studio: a project's own generation settings
         self.gate = None  # async () -> reason | None: the owner's GPU hold, set by Studio
         self.gpu = None  # GpuShare (gpu_share.py), set by Studio: Ollama's local models make way before WanGP work
 
@@ -183,7 +184,7 @@ class RenderService:
             return await self._song_settings(shot, refs or [])
         tpl = await self.resolve_template(shot["template"])
         full = await self.wangp.call("wangp_templates", {"task": tpl.get("task", "gen_video"), "template": tpl["template"]})
-        settings = dict(full.get("settings") or {})
+        settings = dict(full.get("settings") or {}) | await self.tuned(shot, tpl["template"])
         settings.update({
             "model_type": tpl["model_type"], "prompt": shot["prompt"],
             "resolution": shot["resolution"], "video_length": shot["frames"], "seed": shot["seed"],
@@ -206,7 +207,7 @@ class RenderService:
         song = shot["_song"]
         tpl = song["template"]
         full = await self.wangp.call("wangp_templates", {"task": tpl["task"], "template": tpl["template"]})
-        settings = dict(full.get("settings") or {})
+        settings = dict(full.get("settings") or {}) | await self.tuned(shot, tpl["template"])
         prompt = shot["prompt"].strip()
         if "lip" not in prompt.lower():
             prompt = f"{prompt.rstrip('.')}. The performer is {LIPSYNC_WORDING}."
@@ -219,6 +220,10 @@ class RenderService:
         if str(tpl["model_type"]).startswith("minimax_h3_ref2va"):
             settings["audio_prompt_type"] = "AS"  # H3: audio_guide is the soundtrack the video follows
         return settings
+
+    async def tuned(self, shot: dict, template: str) -> dict:
+        """The project's own generation settings for this template (tuning.py), laid over the template's."""
+        return await self.tuning.overrides(shot["project_id"], template) if self.tuning and shot.get("project_id") else {}
 
     # Wired by Studio: shot -> (effective template, uploaded refs, blocking issues). Defaults keep tests of
     # this module standalone.

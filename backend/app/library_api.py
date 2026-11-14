@@ -11,7 +11,9 @@ from .capabilities import CapabilityError
 from .director.chat import ChatBusy
 from .db import now
 from .library import MAX_UPLOAD_BYTES, LibraryError
-from .renders import RenderError
+from .renders import RenderError, UnknownTemplate
+from .tuning import TuningError
+from .wangp.client import WanGPError
 from .trash import TrashError
 
 router = APIRouter(dependencies=[Depends(auth.require_owner)])
@@ -528,6 +530,41 @@ async def project_models(project_id: str, body: ProjectModelsIn, request: Reques
     await s.bus.publish("project.updated", {"project_id": project_id}, project_id)
     return await s.db.fetchone("SELECT id, video_refs_template, video_plain_template FROM projects WHERE id = ?",
                                (project_id,))
+
+
+class TuningIn(BaseModel):
+    template: str = Field(min_length=1, max_length=200)
+    values: dict = Field(default_factory=dict)
+
+
+@router.get("/api/projects/{project_id}/tuning")
+async def get_tuning(project_id: str, template: str, request: Request):
+    """The generation settings one video template's model offers (WanGP's Advanced mode), with the project's own
+    values. Asked of WanGP, so it needs WanGP running."""
+    s = st(request)
+    wangp_ready(s)
+    if not await s.db.fetchone("SELECT 1 FROM projects WHERE id = ? AND deleted_at IS NULL", (project_id,)):
+        raise HTTPException(404, "no such project")
+    try:
+        return await s.tuning.view(project_id, template)
+    except (UnknownTemplate, WanGPError) as exc:
+        raise HTTPException(422, str(exc)[:300]) from exc
+
+
+@router.put("/api/projects/{project_id}/tuning")
+async def put_tuning(project_id: str, body: TuningIn, request: Request):
+    """Save the project's values for one template (empty: back to the template's own). Applies to renders started
+    from now on; takes already made keep theirs."""
+    s = st(request)
+    wangp_ready(s)
+    if not await s.db.fetchone("SELECT 1 FROM projects WHERE id = ? AND deleted_at IS NULL", (project_id,)):
+        raise HTTPException(404, "no such project")
+    try:
+        out = await s.tuning.save(project_id, body.template, body.values, OWNER)
+    except (TuningError, UnknownTemplate, WanGPError) as exc:
+        raise HTTPException(422, str(exc)[:600]) from exc
+    await s.bus.publish("project.updated", {"project_id": project_id}, project_id)
+    return out
 
 
 # --- shot references --------------------------------------------------------------------------
